@@ -26,5 +26,9 @@ let package = Package(
                 .linkedFramework("Carbon"),
             ]
         ),
+        .testTarget(
+            name: "VoiceInkTests",
+            dependencies: ["VoiceInkLib"]
+        ),
     ]
 )

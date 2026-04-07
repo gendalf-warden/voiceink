@@ -31,7 +31,7 @@ open VoiceInk.app        # запуск бандла
 ## Структура
 
 - `Sources/VoiceInk/main.swift` — entry point
-- `Sources/VoiceInkLib/` — вся логика (18 файлов)
+- `Sources/VoiceInkLib/` — вся логика (19 файлов)
   - `AppDelegate.swift` — оркестратор, pipeline, state machine, first-run wizard → splash при старте
   - `Transcriber.swift` — whisper-server subprocess (:8178) + HTTP client, configurable timeout
   - `LlamaClient.swift` — bundled llama-server subprocess (:8179) + /v1/chat/completions, GGML_BACKEND_PATH, stderr capture
@@ -50,6 +50,11 @@ open VoiceInk.app        # запуск бандла
   - `KeyMap.swift` — key codes ↔ names, modifier symbols
   - `Logger.swift` — singleton, file rotation 1MB
   - `AppState.swift` — enum: idle/recording/transcribing/postProcessing/error
+  - `StringExtensions.swift` — `stripCombiningAccents()` и другие расширения String
+- `Tests/VoiceInkTests/` — юнит-тесты (27 тестов)
+  - `KeyMapTests.swift`, `AppStateTests.swift`, `ConfigTests.swift`, `StringExtensionsTests.swift`
+- `scripts/pre-merge-check.sh` — валидация перед мержем (build + test + release build)
+- `CHANGELOG.md` — история изменений по версиям (Keep a Changelog)
 - `build-app.sh` — сборка .app бандла в /tmp (обход iCloud xattr), dylib bundling, DMG (release only)
 - `VERSION` — текущая версия приложения
 - `dmg_background.png` — фон для DMG инсталлера (стрелка drag-to-Applications)
@@ -103,15 +108,52 @@ open VoiceInk.app        # запуск бандла
 
 **Фикс**: передать явные PCM outputSettings (16kHz mono 16-bit) в writer input.
 
+## Процесс разработки
+
+### Git Flow
+- **main** — только релизы, каждый коммит = тег
+- **develop** — интеграция, все фичи сливаются сюда
+- **feature/<name>** — одна фича = один агент = одна ветка, создаётся от develop
+- **release/<version>** — стабилизация перед релизом
+- Мерж: rebase + fast-forward (линейная история)
+- Параллельные агенты работают в worktrees (`git worktree add /tmp/voiceink-<name> feature/<name>`)
+
+### Коммиты
+- Формат: `<type>(<scope>): <description>`
+- Типы: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `chore`
+- Скоупы: `config`, `keymap`, `hotkey`, `transcriber`, `llm`, `ui`, `build`, `history`, `tests`
+
+### Перед мержем в develop
+- `swift build` — 0 warnings
+- `swift test` — все тесты проходят
+- Или запустить `./scripts/pre-merge-check.sh`
+- Человек ревьюит diff и подтверждает
+
+### Релизный процесс
+1. `git checkout -b release/X.Xb develop`
+2. Bump VERSION, обновить CHANGELOG.md
+3. Полный тестовый цикл (swift test + TESTS.md regression)
+4. `./build-app.sh release` → DMG + SHA256
+5. Мерж в main, тег `vX.Xb`
+6. Back-merge в develop
+
 ## Тестирование
 
-- `TESTS.md` — 72 ручных регрессионных теста, smoke test из 7 проверок
-- После изменений: `swift build` + smoke test
+### Автоматические (swift test)
+- 27 юнит-тестов: KeyMap, AppState, Config (Codable, backward compat), StringExtensions
+- Запуск: `swift test`
+- Тесты в `Tests/VoiceInkTests/`
+
+### Ручные (TESTS.md)
+- 72 регрессионных теста, smoke test из 7 проверок
+- После изменений кода: `swift build` + `swift test` + smoke test
 - После изменений бандла: `./build-app.sh` + `open VoiceInk.app` + smoke test
-- Тестировать на нескольких машинах: dev (M3 Max 36GB), M4 24GB, M2 8GB
+- Перед релизом: полная регрессия на нескольких машинах (M3 Max 36GB, M4 24GB, M2 8GB)
 
 ## Документация
 
+- `CLAUDE.md` — инструкции для агентов (этот файл)
 - `PROJECT.md` — полный статус, архитектура, бэклог, принятые решения
+- `CHANGELOG.md` — история изменений по версиям
 - `TESTS.md` — чеклист регрессионных тестов
 - `architecture.html` — интерактивная диаграмма (открыть в браузере)
