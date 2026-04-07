@@ -301,6 +301,9 @@ rm -rf "$FINAL_BUNDLE"
 cp -R "$BUNDLE" "$FINAL_BUNDLE"
 rm -rf "$BUILD_DIR"
 
+# Remove iCloud xattr that blocks app launch
+xattr -dr com.apple.provenance "$FINAL_BUNDLE" 2>/dev/null || true
+
 # Summary
 BUNDLE="$FINAL_BUNDLE"
 CONTENTS="${BUNDLE}/Contents"

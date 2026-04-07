@@ -68,7 +68,67 @@ public class AudioRecorder {
         audioEngine?.stop()
         audioEngine = nil
         audioFile = nil
+
+        // Trim trailing silence to prevent Whisper hallucinations
+        if let url = tempFileURL {
+            trimTrailingSilence(url: url)
+        }
+
         return tempFileURL
+    }
+
+    /// Remove trailing silence from WAV file to prevent Whisper from hallucinating
+    /// on quiet endings (e.g. adding "Продолжение следует..." or "Thank you.")
+    private func trimTrailingSilence(url: URL) {
+        guard let file = try? AVAudioFile(forReading: url) else { return }
+        let totalFrames = AVAudioFrameCount(file.length)
+        guard totalFrames > 0 else { return }
+
+        let sampleRate = file.processingFormat.sampleRate
+        // Read the whole file into a buffer
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: totalFrames) else { return }
+        do { try file.read(into: buffer) } catch { return }
+
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+
+        // Walk backwards from the end, find the last sample above threshold
+        let silenceThreshold: Float = 0.005
+        let chunkSize = Int(sampleRate * 0.05) // 50ms chunks
+        var lastLoudFrame = Int(totalFrames)
+
+        for i in stride(from: Int(totalFrames) - chunkSize, through: 0, by: -chunkSize) {
+            let end = min(i + chunkSize, Int(totalFrames))
+            var maxAmp: Float = 0
+            for j in i..<end {
+                let amp = abs(channelData[j])
+                if amp > maxAmp { maxAmp = amp }
+            }
+            if maxAmp > silenceThreshold {
+                // Keep 200ms of silence after last loud chunk for natural ending
+                lastLoudFrame = min(end + Int(sampleRate * 0.2), Int(totalFrames))
+                break
+            }
+        }
+
+        // Only trim if we'd remove at least 500ms of silence
+        let trimmedFrames = Int(totalFrames) - lastLoudFrame
+        let minTrimFrames = Int(sampleRate * 0.5)
+        guard trimmedFrames >= minTrimFrames else { return }
+
+        // Write trimmed audio to the same file
+        let settings = file.fileFormat.settings
+        guard let trimmedBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(lastLoudFrame)) else { return }
+        memcpy(trimmedBuffer.floatChannelData![0], channelData, lastLoudFrame * MemoryLayout<Float>.size)
+        trimmedBuffer.frameLength = AVAudioFrameCount(lastLoudFrame)
+
+        do {
+            let writer = try AVAudioFile(forWriting: url, settings: settings)
+            try writer.write(from: trimmedBuffer)
+            let trimmedMs = Int(Double(trimmedFrames) / sampleRate * 1000)
+            log("Trimmed \(trimmedMs)ms trailing silence", tag: "AudioRecorder")
+        } catch {
+            log("Failed to trim silence: \(error)", tag: "AudioRecorder")
+        }
     }
 
     public static func requestPermission(completion: @escaping (Bool) -> Void) {
