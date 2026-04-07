@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>VoiceInk — Архитектура</title>
+<style>
+  body { background: #fff; display: flex; justify-content: center; padding: 20px; font-family: system-ui; }
+  .mermaid { transform: scale(2.625); transform-origin: top center; margin-bottom: 40%; }
+</style>
+</head>
+<body>
+<div class="mermaid">
+graph TD
+    MAIN["<b>main.swift</b><br/>NSApplication .accessory<br/>SIGINT / SIGTERM"]
+    CONFIG["<b>Config</b><br/>~/.config/voiceink/config.json<br/>Codable, auto-detect paths<br/>hotkey, language, ollama"]
+    STATE["<b>AppState</b><br/>idle → recording → transcribing<br/>→ postProcessing → idle | error"]
+    AD["<b>AppDelegate</b><br/>state: AppState (didSet → UI)<br/>startRecording / stopRecordingAndProcess<br/>applyConfig / shutdown"]
+    HK["<b>HotkeyManager</b><br/>CGEventTap (global)<br/>modifier+key / Fn-only (300ms)<br/>swallowUntilRelease"]
+    AR["<b>AudioRecorder</b><br/>AVAudioEngine<br/>16kHz mono PCM → WAV<br/>Microphone permission"]
+    KM["<b>KeyMap</b><br/>keyCodes ↔ names<br/>modifier symbols ⌃⌘⌥⇧"]
+    TR["<b>Transcriber</b><br/>HTTP POST multipart<br/>async throws → String<br/>startServer / stopServer"]
+    WS[("<b>whisper-server</b><br/>subprocess :8178<br/>large-v3-turbo-q5_0<br/>Metal + CoreML")]
+    OC["<b>OllamaClient</b><br/>POST /api/generate<br/>async throws → String<br/>warmup / unloadModel"]
+    OL[("<b>Ollama</b><br/>:11434<br/>qwen2.5:3b<br/>~3.5 GB VRAM")]
+    TI["<b>TextInserter</b><br/>NSPasteboard + CGEvent Cmd+V<br/>Keyboard layout-aware<br/>Clipboard restore (150ms)"]
+    APP["<b>Активное приложение</b><br/>Telegram, VS Code,<br/>Chrome, TextEdit ..."]
+    SB["<b>StatusBarController</b><br/>NSStatusBar + NSMenu<br/>Animated icons<br/>Info: hotkey, model, lang"]
+    SW["<b>SettingsWindowController</b><br/>NSWindow (floating)<br/>HotkeyRecorderField<br/>Launch at Login / Log privacy"]
+    LG["<b>Logger</b> (singleton)<br/>~/.config/voiceink/voiceink.log<br/>rotation 1MB, async I/O"]
+
+    MAIN --> AD
+    CONFIG -->|load| AD
+    AD -.->|didSet| STATE
+
+    HK -->|"onKeyDown / onKeyUp"| AD
+    AD -->|"start / stop"| AR
+    KM -.-> HK
+    KM -.-> SW
+
+    AD -->|"transcribe(audioURL)"| TR
+    TR --> WS
+    AD -->|"postProcess(text)"| OC
+    OC --> OL
+
+    AD -->|"insert(text)"| TI
+    TI -->|Cmd+V| APP
+
+    AD -->|"state (didSet)"| SB
+    SW -->|onConfigChanged| AD
+
+    LG -.->|"log() все модули"| AD
+
+    classDef entry fill:#f5f5f5,stroke:#666,color:#333
+    classDef data fill:#fff2cc,stroke:#d6b656,color:#333
+    classDef core fill:#dae8fc,stroke:#6c8ebf,color:#333
+    classDef input fill:#d5e8d4,stroke:#82b366,color:#333
+    classDef processing fill:#e1d5e7,stroke:#9673a6,color:#333
+    classDef output fill:#f8cecc,stroke:#b85450,color:#333
+    classDef ui fill:#dae8fc,stroke:#6c8ebf,color:#333
+    classDef util fill:#f5f5f5,stroke:#999,color:#333
+
+    class MAIN entry
+    class CONFIG,STATE data
+    class AD core
+    class HK,AR input
+    class KM util
+    class TR,WS,OC,OL processing
+    class TI,APP output
+    class SB,SW ui
+    class LG util
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'default', securityLevel: 'loose'});</script>
+</body>
+</html>

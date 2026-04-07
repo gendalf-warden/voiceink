@@ -1,0 +1,6 @@
+.build/
+VoiceInk.app/
+VoiceInk*.dmg
+*.wav
+.DS_Store
+test files/

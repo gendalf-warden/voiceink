@@ -1,0 +1,375 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Mode: dev (default) or release
+MODE="${1:-dev}"
+if [ "$MODE" != "dev" ] && [ "$MODE" != "release" ]; then
+    echo "Usage: $0 [dev|release]"
+    echo "  dev     — build .app only (fast iteration)"
+    echo "  release — build .app + versioned DMG"
+    exit 1
+fi
+
+# Version from VERSION file
+VERSION=$(cat "${SCRIPT_DIR}/VERSION" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$VERSION" ]; then
+    echo "ERROR: VERSION file not found or empty"
+    exit 1
+fi
+
+APP_NAME="VoiceInk"
+# Build outside iCloud Drive to avoid com.apple.provenance xattrs
+BUILD_DIR="/tmp/voiceink-build"
+BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
+CONTENTS="${BUNDLE}/Contents"
+RESOURCES="${CONTENTS}/Resources"
+FINAL_BUNDLE="${SCRIPT_DIR}/${APP_NAME}.app"
+
+if [ "$MODE" = "release" ]; then
+    echo "=== Building ${APP_NAME} v${VERSION} (RELEASE) ==="
+else
+    echo "=== Building ${APP_NAME} (dev) ==="
+fi
+
+# Paths to whisper resources
+WHISPER_BUILD="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/whisper.cpp/build"
+WHISPER_SERVER="${WHISPER_BUILD}/bin/whisper-server"
+WHISPER_MODEL="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/models/ggml-large-v3-turbo-q5_0.bin"
+
+# Paths to LLM resources
+LLAMA_SERVER="/opt/homebrew/bin/llama-server"
+# qwen2.5:3b GGUF from Ollama blobs
+QWEN_MODEL_BLOB="${HOME}/.ollama/models/blobs/sha256-5ee4f07cdb9beadbbb293e85803c569b01bd37ed059d2715faa7bb405f31caa6"
+
+# Step 1: Build release binary
+echo "[1/7] Building release binary..."
+swift build -c release 2>&1 | tail -1
+
+BINARY=".build/release/voiceink"
+if [ ! -f "$BINARY" ]; then
+    echo "ERROR: Binary not found at $BINARY"
+    exit 1
+fi
+
+# Step 2: Create .app structure
+echo "[2/7] Creating bundle structure..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+mkdir -p "${CONTENTS}/MacOS"
+mkdir -p "${RESOURCES}/models"
+mkdir -p "${RESOURCES}/lib"
+mkdir -p "${RESOURCES}/lib-llama"
+
+# Step 3: Copy binary
+echo "[3/7] Copying binary..."
+cp "$BINARY" "${CONTENTS}/MacOS/voiceink"
+
+# Step 4: Copy resources
+echo "[4/7] Copying resources..."
+
+echo "       whisper-server..."
+if [ ! -f "$WHISPER_SERVER" ]; then
+    echo "ERROR: whisper-server not found at: $WHISPER_SERVER"
+    exit 1
+fi
+cp "$WHISPER_SERVER" "${RESOURCES}/whisper-server"
+chmod +x "${RESOURCES}/whisper-server"
+
+echo "       whisper dylibs..."
+# Copy all required dynamic libraries for whisper-server
+DYLIBS=(
+    "${WHISPER_BUILD}/src/libwhisper.1.dylib"
+    "${WHISPER_BUILD}/src/libwhisper.coreml.dylib"
+    "${WHISPER_BUILD}/ggml/src/libggml.0.dylib"
+    "${WHISPER_BUILD}/ggml/src/libggml-base.0.dylib"
+    "${WHISPER_BUILD}/ggml/src/libggml-cpu.0.dylib"
+    "${WHISPER_BUILD}/ggml/src/ggml-blas/libggml-blas.0.dylib"
+    "${WHISPER_BUILD}/ggml/src/ggml-metal/libggml-metal.0.dylib"
+)
+for dylib in "${DYLIBS[@]}"; do
+    if [ -L "$dylib" ]; then
+        # Resolve symlink and copy the actual file with the symlink name
+        real=$(readlink -f "$dylib")
+        cp "$real" "${RESOURCES}/lib/$(basename "$dylib")"
+    elif [ -f "$dylib" ]; then
+        cp "$dylib" "${RESOURCES}/lib/"
+    else
+        echo "WARNING: dylib not found: $dylib"
+    fi
+done
+
+# Fix rpaths: point whisper-server to bundled libs
+# whisper-server is in Resources/, dylibs in Resources/lib/
+install_name_tool -add_rpath @executable_path/lib "${RESOURCES}/whisper-server" 2>/dev/null || true
+
+# Also fix rpaths inside dylibs (they reference each other)
+for lib in "${RESOURCES}"/lib/*.dylib; do
+    # Change @rpath references to point to same directory
+    install_name_tool -add_rpath @loader_path "${lib}" 2>/dev/null || true
+done
+
+echo "       whisper model (547 MB)..."
+if [ ! -f "$WHISPER_MODEL" ]; then
+    echo "ERROR: Whisper model not found at: $WHISPER_MODEL"
+    exit 1
+fi
+cp "$WHISPER_MODEL" "${RESOURCES}/models/"
+
+echo "       CoreML model (1.2 GB)..."
+COREML_MODEL="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/models/ggml-large-v3-turbo-encoder.mlmodelc"
+if [ -d "$COREML_MODEL" ]; then
+    cp -R "$COREML_MODEL" "${RESOURCES}/models/"
+else
+    echo "WARNING: CoreML model not found, whisper will use CPU-only mode"
+fi
+
+echo "       llama-server..."
+if [ ! -f "$LLAMA_SERVER" ]; then
+    echo "ERROR: llama-server not found at: $LLAMA_SERVER"
+    echo "       Install with: brew install llama.cpp"
+    exit 1
+fi
+cp "$LLAMA_SERVER" "${RESOURCES}/llama-server"
+chmod +x "${RESOURCES}/llama-server"
+
+# Helper: resolve and copy a dylib to Resources/lib-llama/
+copy_dylib() {
+    local src="$1" dst_name="$2"
+    [ -f "${RESOURCES}/lib-llama/${dst_name}" ] && return 0
+    if [ -L "$src" ]; then
+        cp "$(readlink -f "$src")" "${RESOURCES}/lib-llama/${dst_name}"
+    elif [ -f "$src" ]; then
+        cp "$src" "${RESOURCES}/lib-llama/${dst_name}"
+    fi
+}
+
+# Copy ggml backend plugins (.so) for llama
+echo "       ggml backend plugins..."
+GGML_LIBEXEC=$(find /opt/homebrew/Cellar/ggml/*/libexec -name "*.so" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+if [ -n "$GGML_LIBEXEC" ] && [ -d "$GGML_LIBEXEC" ]; then
+    cp "$GGML_LIBEXEC"/*.so "${RESOURCES}/lib-llama/"
+    # Copy libomp (needed by CPU backends)
+    LIBOMP=$(find /opt/homebrew/Cellar/libomp/*/lib/libomp.dylib 2>/dev/null | head -1)
+    if [ -n "$LIBOMP" ] && [ -f "$LIBOMP" ]; then
+        cp "$(readlink -f "$LIBOMP")" "${RESOURCES}/lib-llama/libomp.dylib"
+    fi
+    # Fix dylib deps inside .so backends
+    for so in "${RESOURCES}"/lib-llama/*.so; do
+        install_name_tool -add_rpath @loader_path "${so}" 2>/dev/null || true
+        otool -L "$so" 2>/dev/null | awk '{print $1}' | while read dep; do
+            case "$dep" in
+                /opt/homebrew/*)
+                    dn=$(basename "$dep")
+                    copy_dylib "$dep" "$dn"
+                    install_name_tool -change "$dep" "@rpath/${dn}" "$so" 2>/dev/null || true
+                    ;;
+            esac
+        done
+    done
+else
+    echo "WARNING: ggml backend plugins not found in homebrew"
+fi
+
+# Copy and fix llama-server dylibs
+echo "       llama-server dylibs..."
+
+# Find and copy all dylib deps (both @rpath and absolute homebrew paths)
+find_homebrew_lib() {
+    local libname="$1"
+    for d in /opt/homebrew/lib /opt/homebrew/opt/*/lib /opt/homebrew/Cellar/llama.cpp/*/lib /opt/homebrew/Cellar/ggml/*/lib; do
+        [ -e "${d}/${libname}" ] && echo "${d}/${libname}" && return 0
+    done
+    return 1
+}
+
+# Collect all deps from llama-server
+ALL_DEPS=$(otool -L "${RESOURCES}/llama-server" 2>/dev/null | tail -n +2 | awk '{print $1}')
+for dep in $ALL_DEPS; do
+    case "$dep" in
+        @rpath/*)
+            libname="${dep#@rpath/}"
+            src=$(find_homebrew_lib "$libname" 2>/dev/null) && copy_dylib "$src" "$libname"
+            ;;
+        /opt/homebrew/*)
+            libname=$(basename "$dep")
+            copy_dylib "$dep" "$libname"
+            install_name_tool -change "$dep" "@rpath/${libname}" "${RESOURCES}/llama-server" 2>/dev/null || true
+            ;;
+    esac
+done
+
+# Now fix transitive deps inside copied dylibs (2 passes)
+for pass in 1 2; do
+    for lib in "${RESOURCES}"/lib-llama/*.dylib; do
+        [ -f "$lib" ] || continue
+        bn=$(basename "$lib")
+        # Fix install name
+        cur_id=$(otool -D "$lib" 2>/dev/null | tail -1)
+        case "$cur_id" in /opt/homebrew/*) install_name_tool -id "@rpath/${bn}" "$lib" 2>/dev/null || true ;; esac
+        # Fix deps
+        otool -L "$lib" 2>/dev/null | awk '{print $1}' | while read dep; do
+            case "$dep" in
+                /opt/homebrew/*)
+                    dn=$(basename "$dep")
+                    copy_dylib "$dep" "$dn"
+                    install_name_tool -change "$dep" "@rpath/${dn}" "$lib" 2>/dev/null || true
+                    ;;
+            esac
+        done
+    done
+done
+
+# Fix rpaths inside llama dylibs (they reference each other)
+for lib in "${RESOURCES}"/lib-llama/*.dylib; do
+    install_name_tool -add_rpath @loader_path "${lib}" 2>/dev/null || true
+done
+
+install_name_tool -add_rpath @executable_path/lib-llama "${RESOURCES}/llama-server" 2>/dev/null || true
+
+echo "       qwen2.5-3b model (1.8 GB)..."
+if [ ! -f "$QWEN_MODEL_BLOB" ]; then
+    echo "ERROR: qwen2.5:3b model not found in Ollama blobs"
+    echo "       Install with: ollama pull qwen2.5:3b"
+    exit 1
+fi
+cp "$QWEN_MODEL_BLOB" "${RESOURCES}/models/qwen2.5-3b.gguf"
+
+# Step 5: Generate Info.plist
+PLIST_VERSION="${VERSION}"
+[ "$MODE" = "dev" ] && PLIST_VERSION="dev"
+echo "[5/7] Generating Info.plist (v${PLIST_VERSION})..."
+cat > "${CONTENTS}/Info.plist" << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>VoiceInk</string>
+    <key>CFBundleDisplayName</key>
+    <string>VoiceInk</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.voiceink.app</string>
+    <key>CFBundleVersion</key>
+    <string>${PLIST_VERSION}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${PLIST_VERSION}</string>
+    <key>CFBundleExecutable</key>
+    <string>voiceink</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>VoiceInk needs microphone access for voice dictation.</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+
+# Step 6: Ad-hoc code signing
+echo "[6/7] Code signing (ad-hoc)..."
+chmod -R u+rw "$BUNDLE"
+xattr -cr "$BUNDLE" 2>/dev/null || true
+# Sign dylibs first, then executables, then the bundle
+for lib in "${RESOURCES}"/lib/*.dylib; do
+    codesign --force --sign - "$lib" 2>/dev/null || true
+done
+for lib in "${RESOURCES}"/lib-llama/*.dylib "${RESOURCES}"/lib-llama/*.so; do
+    codesign --force --sign - "$lib" 2>/dev/null || true
+done
+codesign --force --sign - "${RESOURCES}/whisper-server"
+codesign --force --sign - "${RESOURCES}/llama-server"
+codesign --force --sign - "$BUNDLE"
+
+# Step 7: Verify dylibs
+echo "[7/7] Verifying dylib loading..."
+if otool -L "${RESOURCES}/whisper-server" | grep -q '@rpath'; then
+    echo "       whisper-server @rpath deps (lib/):"
+    otool -L "${RESOURCES}/whisper-server" | grep '@rpath' | awk '{print "         "$1}'
+fi
+if otool -L "${RESOURCES}/llama-server" | grep -q '@rpath'; then
+    echo "       llama-server @rpath deps (lib-llama/):"
+    otool -L "${RESOURCES}/llama-server" | grep '@rpath' | awk '{print "         "$1}'
+fi
+
+# Copy final bundle back to project dir
+rm -rf "$FINAL_BUNDLE"
+cp -R "$BUNDLE" "$FINAL_BUNDLE"
+rm -rf "$BUILD_DIR"
+
+# Summary
+BUNDLE="$FINAL_BUNDLE"
+CONTENTS="${BUNDLE}/Contents"
+RESOURCES="${CONTENTS}/Resources"
+BINARY_SIZE=$(du -sh "${CONTENTS}/MacOS/voiceink" | cut -f1)
+WHISPER_SIZE=$(du -sh "${RESOURCES}/models/ggml-large-v3-turbo-q5_0.bin" | cut -f1)
+QWEN_SIZE=$(du -sh "${RESOURCES}/models/qwen2.5-3b.gguf" | cut -f1)
+LIB_SIZE=$(du -sh "${RESOURCES}/lib/" | cut -f1)
+LIB_LLAMA_SIZE=$(du -sh "${RESOURCES}/lib-llama/" | cut -f1)
+TOTAL_SIZE=$(du -sh "$BUNDLE" | cut -f1)
+
+echo ""
+echo "=== Done! ==="
+echo "  Binary:       ${BINARY_SIZE}"
+echo "  Whisper libs: ${LIB_SIZE}"
+echo "  Llama libs:   ${LIB_LLAMA_SIZE}"
+echo "  Whisper model: ${WHISPER_SIZE}"
+echo "  Qwen model:   ${QWEN_SIZE}"
+echo "  Total:        ${TOTAL_SIZE}"
+echo ""
+echo "  ${BUNDLE}"
+echo ""
+echo "To run:  open ${APP_NAME}.app"
+
+# Step 8: Build .dmg installer (release only)
+if [ "$MODE" = "release" ]; then
+    echo ""
+    echo "=== Building DMG (v${VERSION}) ==="
+    DMG_NAME="${APP_NAME}-${VERSION}.dmg"
+    DMG_LATEST="${APP_NAME}.dmg"
+    DMG_PATH="${SCRIPT_DIR}/${DMG_NAME}"
+    DMG_TMP="/tmp/${DMG_NAME}"
+    rm -f "$DMG_PATH" "$DMG_TMP"
+
+    if command -v create-dmg &>/dev/null || [ -x /opt/homebrew/bin/create-dmg ]; then
+        CREATE_DMG=$(command -v create-dmg || echo /opt/homebrew/bin/create-dmg)
+        DMG_BG="${SCRIPT_DIR}/dmg_background.png"
+        BG_ARGS=()
+        if [ -f "$DMG_BG" ]; then
+            BG_ARGS=(--background "$DMG_BG")
+        fi
+        "$CREATE_DMG" \
+            --volname "${APP_NAME}" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "${APP_NAME}.app" 150 185 \
+            --app-drop-link 450 185 \
+            "${BG_ARGS[@]}" \
+            --no-internet-enable \
+            "$DMG_TMP" \
+            "$FINAL_BUNDLE" \
+            2>&1 | grep -v "^$"
+
+        cp "$DMG_TMP" "$DMG_PATH"
+        rm -f "$DMG_TMP"
+        # Also create/update symlink without version for convenience
+        ln -sf "$DMG_NAME" "${SCRIPT_DIR}/${DMG_LATEST}"
+        DMG_SIZE=$(du -sh "$DMG_PATH" | cut -f1)
+        DMG_SHA256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+        echo ""
+        echo "  DMG:          ${DMG_SIZE}  ${DMG_NAME}"
+        echo "  SHA256:       ${DMG_SHA256}"
+        echo "  ${DMG_PATH}"
+    else
+        echo "  create-dmg not found, skipping DMG creation"
+        echo "  Install with: brew install create-dmg"
+    fi
+else
+    echo ""
+    echo "  (dev mode — DMG skipped, use './build-app.sh release' for DMG)"
+fi
