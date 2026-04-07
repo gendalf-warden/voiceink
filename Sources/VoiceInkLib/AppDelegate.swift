@@ -253,10 +253,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                             throw NSError(domain: "VoiceInk", code: -1, userInfo: [NSLocalizedDescriptionKey: "No LLM available"])
                         }
                         let llmTime = Date().timeIntervalSince(llmStart)
-                        let procDisplay = self.config.logTranscriptions ? processed : "[\(processed.count) chars]"
+
+                        // Guard against LLM hallucination: if output is 3x+ longer than input, use raw
+                        let finalText: String
+                        if processed.count > rawText.count * 3 {
+                            log("LLM output too long (\(processed.count) vs \(rawText.count) chars) — using raw text", tag: "LLM")
+                            finalText = rawText
+                        } else {
+                            finalText = processed
+                        }
+
+                        let procDisplay = self.config.logTranscriptions ? finalText : "[\(finalText.count) chars]"
                         log("Processed (\(String(format: "%.1f", llmTime))s): \(procDisplay)")
                         await MainActor.run {
-                            TextInserter().insert(text: processed)
+                            TextInserter().insert(text: finalText)
                             self.state = .idle
                         }
                     } catch {
