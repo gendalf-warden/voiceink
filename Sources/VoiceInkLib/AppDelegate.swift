@@ -17,6 +17,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var firstRunWindow: FirstRunWindowController?
     private var history: [(date: Date, text: String)] = []
     private let maxHistory = 10
+    private var recordingStartTime: Date?
+    private let minRecordingDuration: TimeInterval = 0.5
+    private let textInserter = TextInserter()
 
     private var state: AppState = .idle {
         didSet {
@@ -71,6 +74,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBar.onTranscribeFile = { [weak self] in
             self?.transcribeFile()
+        }
+        statusBar.onUndoDictation = { [weak self] in
+            self?.textInserter.undoLastInsertion()
         }
 
         audioRecorder = AudioRecorder()
@@ -200,6 +206,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
         do {
             let url = try audioRecorder.startRecording()
+            recordingStartTime = Date()
             state = .recording
             log("Recording to: \(url.lastPathComponent)")
         } catch {
@@ -214,6 +221,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             state = .error("No audio file")
             return
         }
+
+        // Skip very short recordings (accidental Fn tap)
+        if let startTime = recordingStartTime {
+            let duration = Date().timeIntervalSince(startTime)
+            if duration < minRecordingDuration {
+                log("Recording too short (\(String(format: "%.2f", duration))s < \(minRecordingDuration)s) — skipping")
+                try? FileManager.default.removeItem(at: audioURL)
+                state = .idle
+                return
+            }
+        }
+        recordingStartTime = nil
 
         state = .transcribing
 
@@ -266,20 +285,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                         let procDisplay = self.config.logTranscriptions ? finalText : "[\(finalText.count) chars]"
                         log("Processed (\(String(format: "%.1f", llmTime))s): \(procDisplay)")
                         await MainActor.run {
-                            TextInserter().insert(text: finalText)
+                            self.textInserter.insert(text: finalText)
                             self.state = .idle
                         }
                     } catch {
                         log("LLM failed: \(error). Using raw text.")
                         await MainActor.run {
-                            TextInserter().insert(text: rawText)
+                            self.textInserter.insert(text: rawText)
                             self.state = .idle
                         }
                     }
                 } else {
                     // No LLM — insert raw text
                     await MainActor.run {
-                        TextInserter().insert(text: rawText)
+                        self.textInserter.insert(text: rawText)
                         self.state = .idle
                     }
                 }
