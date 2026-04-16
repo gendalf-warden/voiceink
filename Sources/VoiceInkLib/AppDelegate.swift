@@ -328,7 +328,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
         fileTranscriptionManager?.llamaClient = llamaClient
         fileTranscriptionManager?.ollamaClient = ollamaClient
-        fileTranscriptionManager?.punctuationEnabled = config.punctuationEnabled
+        fileTranscriptionManager?.punctuationEnabled = config.filePunctuationEnabled
         fileTranscriptionManager?.startFileTranscription(transcriber: transcriber)
     }
 

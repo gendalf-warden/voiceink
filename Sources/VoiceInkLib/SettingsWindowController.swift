@@ -7,6 +7,7 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
     private var launchAtLoginCheckbox: NSButton!
     private var logTranscriptionsCheckbox: NSButton!
     private var punctuationCheckbox: NSButton!
+    private var filePunctuationCheckbox: NSButton!
 
     private var config: Config
     public var onConfigChanged: ((Config) -> Void)?
@@ -23,8 +24,8 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let width: CGFloat = 420
-        let height: CGFloat = 240
+        let width: CGFloat = 500
+        let height: CGFloat = 280
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -77,11 +78,17 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         logTranscriptionsCheckbox.state = config.logTranscriptions ? .on : .off
         contentView.addSubview(logTranscriptionsCheckbox)
 
-        // --- Punctuation row ---
-        punctuationCheckbox = NSButton(checkboxWithTitle: "Продвинутая пунктуация (> 8 ГБ RAM)", target: self, action: #selector(punctuationToggled))
+        // --- Smart punctuation: dictation ---
+        punctuationCheckbox = NSButton(checkboxWithTitle: "Умная пунктуация при диктовке", target: self, action: #selector(punctuationToggled))
         punctuationCheckbox.frame = NSRect(x: checkboxLeft, y: height - 150, width: checkboxWidth, height: 22)
         punctuationCheckbox.state = config.punctuationEnabled ? .on : .off
         contentView.addSubview(punctuationCheckbox)
+
+        // --- Smart punctuation: file transcription ---
+        filePunctuationCheckbox = NSButton(checkboxWithTitle: "Умная пунктуация при транскрипции файлов", target: self, action: #selector(filePunctuationToggled))
+        filePunctuationCheckbox.frame = NSRect(x: checkboxLeft, y: height - 180, width: checkboxWidth, height: 22)
+        filePunctuationCheckbox.state = config.filePunctuationEnabled ? .on : .off
+        contentView.addSubview(filePunctuationCheckbox)
 
         // --- Hint ---
         let hint = NSTextField(wrappingLabelWithString: "Click the hotkey field, then press a key combo (e.g. \u{2303}1) or Fn alone.")
@@ -106,7 +113,14 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         config.punctuationEnabled = (punctuationCheckbox.state == .on)
         config.save()
         onConfigChanged?(config)
-        log("Punctuation: \(config.punctuationEnabled)")
+        log("Dictation punctuation: \(config.punctuationEnabled)")
+    }
+
+    @objc private func filePunctuationToggled() {
+        config.filePunctuationEnabled = (filePunctuationCheckbox.state == .on)
+        config.save()
+        onConfigChanged?(config)
+        log("File punctuation: \(config.filePunctuationEnabled)")
     }
 
     @objc private func launchAtLoginToggled() {
@@ -124,6 +138,7 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         launchAtLoginCheckbox?.state = config.launchAtLogin ? .on : .off
         logTranscriptionsCheckbox?.state = config.logTranscriptions ? .on : .off
         punctuationCheckbox?.state = config.punctuationEnabled ? .on : .off
+        filePunctuationCheckbox?.state = config.filePunctuationEnabled ? .on : .off
     }
 
     // MARK: - NSWindowDelegate

@@ -20,7 +20,8 @@ final class ConfigTests: XCTestCase {
             ollamaEndpoint: "http://localhost:11434",
             launchAtLogin: true,
             logTranscriptions: false,
-            punctuationEnabled: true
+            punctuationEnabled: true,
+            filePunctuationEnabled: true
         )
 
         let encoder = JSONEncoder()
@@ -41,6 +42,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(decoded.launchAtLogin, config.launchAtLogin)
         XCTAssertEqual(decoded.logTranscriptions, config.logTranscriptions)
         XCTAssertEqual(decoded.punctuationEnabled, config.punctuationEnabled)
+        XCTAssertEqual(decoded.filePunctuationEnabled, config.filePunctuationEnabled)
     }
 
     // MARK: - Backward compatibility (missing optional fields)
@@ -70,6 +72,8 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.logTranscriptions, true)
         // punctuationEnabled defaults based on RAM — just check it decodes without crash
         _ = config.punctuationEnabled
+        // filePunctuationEnabled defaults to false
+        XCTAssertEqual(config.filePunctuationEnabled, false)
     }
 
     // MARK: - llamaAvailable
@@ -80,7 +84,8 @@ final class ConfigTests: XCTestCase {
             language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
             llamaServerPath: "/bin/llama", llamaModelPath: "/models/model.gguf",
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true
+            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
+            filePunctuationEnabled: false
         )
         XCTAssertTrue(config.llamaAvailable)
     }
@@ -91,7 +96,8 @@ final class ConfigTests: XCTestCase {
             language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
             llamaServerPath: "", llamaModelPath: "/models/model.gguf",
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true
+            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
+            filePunctuationEnabled: false
         )
         XCTAssertFalse(config.llamaAvailable)
     }
@@ -102,7 +108,8 @@ final class ConfigTests: XCTestCase {
             language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
             llamaServerPath: "/bin/llama", llamaModelPath: "",
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true
+            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
+            filePunctuationEnabled: false
         )
         XCTAssertFalse(config.llamaAvailable)
     }
@@ -115,7 +122,8 @@ final class ConfigTests: XCTestCase {
             language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
             llamaServerPath: "", llamaModelPath: "",
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true
+            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
+            filePunctuationEnabled: false
         )
         XCTAssertEqual(config.whisperModelName, "large-v3-turbo-q5_0")
     }
@@ -128,7 +136,8 @@ final class ConfigTests: XCTestCase {
             language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
             llamaServerPath: "", llamaModelPath: "",
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true
+            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
+            filePunctuationEnabled: false
         )
         XCTAssertEqual(config.hotkeyDescription, "Fn")
     }
