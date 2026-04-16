@@ -31,7 +31,7 @@ open VoiceInk.app        # запуск бандла
 ## Структура
 
 - `Sources/VoiceInk/main.swift` — entry point
-- `Sources/VoiceInkLib/` — вся логика (19 файлов)
+- `Sources/VoiceInkLib/` — вся логика (20 файлов)
   - `AppDelegate.swift` — оркестратор, pipeline, state machine, first-run wizard → splash при старте
   - `Transcriber.swift` — whisper-server subprocess (:8178) + HTTP client, configurable timeout
   - `LlamaClient.swift` — bundled llama-server subprocess (:8179) + /v1/chat/completions, GGML_BACKEND_PATH, stderr capture
@@ -51,8 +51,9 @@ open VoiceInk.app        # запуск бандла
   - `Logger.swift` — singleton, file rotation 1MB
   - `AppState.swift` — enum: idle/recording/transcribing/postProcessing/error
   - `StringExtensions.swift` — `stripCombiningAccents()` и другие расширения String
-- `Tests/VoiceInkTests/` — юнит-тесты (27 тестов)
-  - `KeyMapTests.swift`, `AppStateTests.swift`, `ConfigTests.swift`, `StringExtensionsTests.swift`
+  - `AsyncSemaphore.swift` — actor-based async семафор для concurrency limit
+- `Tests/VoiceInkTests/` — юнит-тесты (60 тестов)
+  - `KeyMapTests.swift`, `AppStateTests.swift`, `ConfigTests.swift`, `StringExtensionsTests.swift`, `AudioConverterTests.swift`, `TranscriberTests.swift`
 - `scripts/pre-merge-check.sh` — валидация перед мержем (build + test + release build)
 - `CHANGELOG.md` — история изменений по версиям (Keep a Changelog)
 - `build-app.sh` — сборка .app бандла в /tmp (обход iCloud xattr), dylib bundling, DMG (release only)
@@ -89,7 +90,10 @@ open VoiceInk.app        # запуск бандла
 - **Punctuation toggle**: настройка «Продвинутая пунктуация (> 8 ГБ RAM)» — выключена по умолчанию на машинах ≤ 8 GB, полностью отключает LLM
 - **Combining accents**: Whisper иногда добавляет диакритику к русскому тексту — `stripCombiningAccents()` фильтрует Unicode 0x0300-0x036F
 - **LlamaClient robustness**: startServer() кидает ошибку если сервер не стартовал, waitForServer() проверяет что процесс жив, warmup() помечает сервер мёртвым при ошибке, stderr логируется при крэше
-- **File transcription**: поддержка mp3/wav/m4a/mp4/mov через AVFoundation (без ffmpeg), конвертация в 16kHz WAV, timeout пропорционален длительности аудио, LLM post-processing (как голосовая диктовка)
+- **File transcription**: поддержка mp3/wav/m4a/mp4/mov через AVFoundation (без ffmpeg), конвертация в 16kHz WAV, chunked (30с по тишине) + параллельный pipeline (concurrency=2, +2.1× скорость), streaming в окно
+- **Language filtering**: детект языка на первом чанке → scriptMatches на остальных → re-transcribe при mismatch → drop если не помогло. CJK-фильтр. Post-LLM script-check (ловит переводы qwen'а)
+- **Hallucination filters**: `Transcriber.removeHallucinations()` — "Продолжение следует...", lone "you", subtitle credits. Standalone-чанки целиком удаляются. 3× length guard в AppDelegate/FileTranscriptionManager
+- **Smart punctuation split**: `config.punctuationEnabled` — для диктовки (on), `config.filePunctuationEnabled` — для файлов (off по умолчанию). Основано на quality-эксперименте: LLM иногда перефразирует и меняет слова
 
 ## Решённые баги
 
