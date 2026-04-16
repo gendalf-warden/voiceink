@@ -96,27 +96,82 @@ public class FileTranscriptionManager {
 
             window.beginStreaming(totalChunks: totalChunks, totalDuration: duration)
 
-            // Step 4: Parallel pipeline — up to `concurrency` ASR and LLM requests in flight
+            // Step 4a: Detect language on first chunk — sets the "expected" language for the file.
+            // Each chunk is still auto-detected (for legitimate code-switching), but if a chunk's
+            // detection differs from expected, we re-transcribe with expected language forced
+            // (rejects rare hallucinations where Whisper mis-detects a noisy chunk as English/Chinese).
+            var expectedLanguage: String? = nil
+            if chunks.count > 1 {
+                window.setStatus("Detecting language...")
+                do {
+                    let firstChunk = chunks[0]
+                    let timeout = max(60, firstChunk.duration * 2)
+                    let (_, detected) = try await transcriber.transcribeDetectLanguage(
+                        audioURL: firstChunk.url, timeout: timeout)
+                    if !detected.isEmpty {
+                        expectedLanguage = detected
+                        log("Expected language: \(detected) (mismatched chunks will be re-transcribed)", tag: "FileTranscription")
+                    }
+                } catch {
+                    log("Language detection failed: \(error)", tag: "FileTranscription")
+                }
+            }
+
+            // Step 4b: Parallel pipeline — up to `concurrency` ASR and LLM requests in flight
             let llamaReady = llamaClient?.isServerRunning == true
             let ollamaReady = ollamaClient != nil
             let useLLM = punctuationEnabled && (llamaReady || ollamaReady)
             let asrSem = AsyncSemaphore(value: concurrency)
             let llmSem = AsyncSemaphore(value: concurrency)
             let completed = ChunkCounter()
-            log("Pipeline: concurrency=\(concurrency), useLLM=\(useLLM)", tag: "FileTranscription")
+            let filterLanguage = expectedLanguage
+            let targetLang = expectedLanguage
+            log("Pipeline: concurrency=\(concurrency), useLLM=\(useLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
 
             await withTaskGroup(of: Void.self) { group in
                 for chunk in chunks {
                     group.addTask { [weak self] in
                         guard let self = self else { return }
 
-                        // ASR
+                        // ASR with fast text format. After transcription, check if the output's
+                        // script matches expected language (cheap character analysis, no extra server call).
+                        // If not — re-transcribe with expected language forced to reject hallucinations.
                         await asrSem.wait()
                         let raw: String
                         do {
                             let timeout = max(60, chunk.duration * 2)
-                            raw = try await transcriber.transcribe(audioURL: chunk.url, timeout: timeout)
-                                .stripCombiningAccents()
+                            var text = try await transcriber.transcribe(
+                                audioURL: chunk.url,
+                                timeout: timeout
+                            )
+
+                            // Script mismatch check (no extra HTTP call — pure char analysis)
+                            if let expected = targetLang,
+                               !text.isEmpty,
+                               !Transcriber.scriptMatches(text, language: expected) {
+                                let preview = String(text.prefix(60))
+                                log("Chunk \(chunk.index): ASR script mismatch — '\(preview)'. Re-transcribing with \(expected) forced.", tag: "FileTranscription")
+                                do {
+                                    let retry = try await transcriber.transcribe(
+                                        audioURL: chunk.url,
+                                        timeout: timeout,
+                                        languageOverride: expected
+                                    )
+                                    // If still mismatched after forced language, the audio is likely noise
+                                    if !retry.isEmpty && Transcriber.scriptMatches(retry, language: expected) {
+                                        text = retry
+                                    } else {
+                                        log("Chunk \(chunk.index): still mismatch after forced '\(expected)' — dropping", tag: "FileTranscription")
+                                        text = ""
+                                    }
+                                } catch {
+                                    log("Re-transcribe failed for chunk \(chunk.index), dropping", tag: "FileTranscription")
+                                    text = ""
+                                }
+                            }
+
+                            text = text.stripCombiningAccents()
+                            raw = Transcriber.stripForeignChars(text, language: filterLanguage)
                         } catch {
                             await asrSem.signal()
                             log("ASR failed for chunk \(chunk.index): \(error)", tag: "FileTranscription")
@@ -142,9 +197,17 @@ public class FileTranscriptionManager {
                                 } else {
                                     processed = raw
                                 }
-                                // Hallucination guard
+                                // Hallucination guard: length
                                 if processed.count > raw.count * 3 {
                                     log("LLM output too long for chunk \(chunk.index) — using raw", tag: "FileTranscription")
+                                    finalText = raw
+                                }
+                                // Hallucination guard: translation (LLM ignored "do not translate" rule)
+                                else if let expected = targetLang,
+                                        !Transcriber.scriptMatches(processed, language: expected),
+                                        Transcriber.scriptMatches(raw, language: expected) {
+                                    let preview = String(processed.prefix(60))
+                                    log("Chunk \(chunk.index): LLM changed script — '\(preview)'. Using raw.", tag: "FileTranscription")
                                     finalText = raw
                                 } else {
                                     finalText = processed
