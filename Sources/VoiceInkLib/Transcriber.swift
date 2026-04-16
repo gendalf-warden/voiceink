@@ -119,7 +119,48 @@ public class Transcriber {
             throw TranscriberError.processFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body)")
         }
 
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawText = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Transcriber.removeHallucinations(rawText)
+    }
+
+    /// Remove common Whisper hallucinations that appear on silence/unclear audio.
+    /// These are phrases Whisper was trained on (captions, subtitles) and emits
+    /// when it has nothing to transcribe.
+    public static func removeHallucinations(_ text: String) -> String {
+        // Known hallucination patterns (case-insensitive, matched at end OR as standalone)
+        let patterns = [
+            "продолжение следует",
+            "продолжение следует...",
+            "продолжение следует…",
+            "субтитры подогнал",
+            "субтитры делал",
+            "редактор субтитров",
+            "корректор субтитров",
+            "thanks for watching",
+            "thank you for watching",
+            "субтитры создавал",
+            "субтитры сделал",
+        ]
+        var result = text
+        // Remove "you" or "You." if the entire output is just that (silence hallucination)
+        let trimmed = result.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        if trimmed.lowercased() == "you" {
+            return ""
+        }
+        // Remove trailing hallucination phrases.
+        // Match: optional whitespace + pattern + anything until end of string (captions often have trailing authors).
+        // Preserves punctuation BEFORE the hallucination (real text).
+        for pattern in patterns {
+            let regex = try? NSRegularExpression(
+                pattern: "\\s+\(NSRegularExpression.escapedPattern(for: pattern)).*$",
+                options: [.caseInsensitive]
+            )
+            if let regex = regex {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @discardableResult

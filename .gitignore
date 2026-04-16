@@ -2,5 +2,9 @@
 VoiceInk.app/
 VoiceInk*.dmg
 *.wav
+*.mp4
+*.mp3
+*.m4a
+*.mov
 .DS_Store
 test files/

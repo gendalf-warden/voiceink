@@ -98,6 +98,144 @@ public class AudioConverter {
         return duration?.seconds ?? 0
     }
 
+    /// A chunk of audio with its position in the original file
+    public struct AudioChunk {
+        public let url: URL
+        public let startTime: TimeInterval  // seconds from start of original
+        public let endTime: TimeInterval
+        public var duration: TimeInterval { endTime - startTime }
+        public var index: Int
+    }
+
+    /// Split a 16kHz mono WAV into chunks of ~targetDuration seconds.
+    /// Finds silence in a ±searchWindow around each boundary to avoid cutting words.
+    /// Returns URLs of temp WAV files (caller is responsible for cleanup).
+    public func splitIntoChunks(
+        wavURL: URL,
+        targetDuration: TimeInterval = 30.0,
+        searchWindow: TimeInterval = 5.0
+    ) throws -> [AudioChunk] {
+        let file = try AVAudioFile(forReading: wavURL)
+        let sampleRate = file.processingFormat.sampleRate
+        let totalFrames = Int(file.length)
+        let totalDuration = Double(totalFrames) / sampleRate
+
+        // If file is shorter than one chunk, return as-is
+        if totalDuration <= targetDuration * 1.5 {
+            return [AudioChunk(url: wavURL, startTime: 0, endTime: totalDuration, index: 0)]
+        }
+
+        // Read entire file into memory (16kHz mono is ~120 KB/s, fine for RAM)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(totalFrames)) else {
+            throw AudioConverterError.conversionFailed("Cannot allocate buffer")
+        }
+        try file.read(into: buffer)
+
+        guard let samples = buffer.floatChannelData?[0] else {
+            throw AudioConverterError.conversionFailed("Cannot access samples")
+        }
+
+        // Find split points (silence locations near each boundary)
+        let targetSamples = Int(targetDuration * sampleRate)
+        let windowSamples = Int(searchWindow * sampleRate)
+        let silenceThreshold: Float = 0.005
+        let minSilenceRun = Int(sampleRate * 0.2) // 200ms of silence
+
+        var splitPoints: [Int] = [0]
+        var nextBoundary = targetSamples
+
+        while nextBoundary < totalFrames - targetSamples / 2 {
+            // Search for silence in [nextBoundary - window, nextBoundary + window]
+            let searchStart = max(0, nextBoundary - windowSamples)
+            let searchEnd = min(totalFrames, nextBoundary + windowSamples)
+
+            let silencePoint = findSilenceCenter(
+                samples: samples,
+                from: searchStart,
+                to: searchEnd,
+                threshold: silenceThreshold,
+                minRun: minSilenceRun
+            ) ?? nextBoundary
+
+            splitPoints.append(silencePoint)
+            nextBoundary = silencePoint + targetSamples
+        }
+        splitPoints.append(totalFrames)
+
+        // Write each chunk to a temp WAV
+        let settings = file.fileFormat.settings
+        var chunks: [AudioChunk] = []
+        for i in 0..<(splitPoints.count - 1) {
+            let startFrame = splitPoints[i]
+            let endFrame = splitPoints[i + 1]
+            let frameCount = endFrame - startFrame
+            guard frameCount > 0 else { continue }
+
+            let chunkURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("voiceink-chunk-\(i)-\(UUID().uuidString).wav")
+
+            guard let chunkBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(frameCount)) else {
+                continue
+            }
+            memcpy(chunkBuffer.floatChannelData![0], samples.advanced(by: startFrame), frameCount * MemoryLayout<Float>.size)
+            chunkBuffer.frameLength = AVAudioFrameCount(frameCount)
+
+            let writer = try AVAudioFile(forWriting: chunkURL, settings: settings)
+            try writer.write(from: chunkBuffer)
+
+            let startTime = Double(startFrame) / sampleRate
+            let endTime = Double(endFrame) / sampleRate
+            chunks.append(AudioChunk(url: chunkURL, startTime: startTime, endTime: endTime, index: i))
+        }
+
+        log("Split into \(chunks.count) chunks (total \(String(format: "%.1f", totalDuration))s)", tag: "AudioConverter")
+        return chunks
+    }
+
+    /// Find the center of the longest silence run within [from, to).
+    /// Returns nil if no silence found.
+    private func findSilenceCenter(
+        samples: UnsafePointer<Float>,
+        from: Int,
+        to: Int,
+        threshold: Float,
+        minRun: Int
+    ) -> Int? {
+        var bestRunStart = -1
+        var bestRunEnd = -1
+        var currentRunStart = -1
+
+        for i in from..<to {
+            if abs(samples[i]) <= threshold {
+                if currentRunStart == -1 {
+                    currentRunStart = i
+                }
+            } else {
+                if currentRunStart != -1 {
+                    let runLen = i - currentRunStart
+                    let bestLen = bestRunEnd - bestRunStart
+                    if runLen >= minRun && runLen > bestLen {
+                        bestRunStart = currentRunStart
+                        bestRunEnd = i
+                    }
+                    currentRunStart = -1
+                }
+            }
+        }
+        // Tail
+        if currentRunStart != -1 {
+            let runLen = to - currentRunStart
+            let bestLen = bestRunEnd - bestRunStart
+            if runLen >= minRun && runLen > bestLen {
+                bestRunStart = currentRunStart
+                bestRunEnd = to
+            }
+        }
+
+        guard bestRunStart != -1 else { return nil }
+        return (bestRunStart + bestRunEnd) / 2
+    }
+
     public enum AudioConverterError: Error, LocalizedError {
         case noAudioTrack
         case conversionFailed(String)
