@@ -46,9 +46,9 @@ QWEN_MODEL_BLOB="${HOME}/.ollama/models/blobs/sha256-5ee4f07cdb9beadbbb293e85803
 
 # Step 1: Build release binary
 echo "[1/7] Building release binary..."
-swift build -c release 2>&1 | tail -1
+swift build -c release --scratch-path /tmp/voiceink-build-scratch 2>&1 | tail -1
 
-BINARY=".build/release/voiceink"
+BINARY="/tmp/voiceink-build-scratch/release/voiceink"
 if [ ! -f "$BINARY" ]; then
     echo "ERROR: Binary not found at $BINARY"
     exit 1
@@ -300,6 +300,9 @@ fi
 rm -rf "$FINAL_BUNDLE"
 cp -R "$BUNDLE" "$FINAL_BUNDLE"
 rm -rf "$BUILD_DIR"
+
+# Remove iCloud xattr that blocks app launch
+xattr -dr com.apple.provenance "$FINAL_BUNDLE" 2>/dev/null || true
 
 # Summary
 BUNDLE="$FINAL_BUNDLE"

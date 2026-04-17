@@ -14,7 +14,11 @@ public struct Config: Codable {
     public var ollamaEndpoint: String
     public var launchAtLogin: Bool
     public var logTranscriptions: Bool
+    /// Smart punctuation for voice dictation (push-to-talk). Short phrases benefit from it.
     public var punctuationEnabled: Bool
+    /// Smart punctuation for file transcription. Off by default — raw Whisper output is usually
+    /// good enough, and LLM adds ~60% processing time plus ~10% risk of word substitution.
+    public var filePunctuationEnabled: Bool
 
     public init(
         whisperCliPath: String, whisperServerPath: String, whisperModelPath: String,
@@ -22,7 +26,7 @@ public struct Config: Codable {
         llamaServerPath: String, llamaModelPath: String,
         ollamaEnabled: Bool, ollamaModel: String, ollamaEndpoint: String,
         launchAtLogin: Bool, logTranscriptions: Bool,
-        punctuationEnabled: Bool
+        punctuationEnabled: Bool, filePunctuationEnabled: Bool
     ) {
         self.whisperCliPath = whisperCliPath
         self.whisperServerPath = whisperServerPath
@@ -38,6 +42,7 @@ public struct Config: Codable {
         self.launchAtLogin = launchAtLogin
         self.logTranscriptions = logTranscriptions
         self.punctuationEnabled = punctuationEnabled
+        self.filePunctuationEnabled = filePunctuationEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -56,6 +61,7 @@ public struct Config: Codable {
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? true
         punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? (Config.systemRAMGB > 8)
+        filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? false
     }
 
     public static let configDir = FileManager.default.homeDirectoryForCurrentUser
@@ -76,7 +82,8 @@ public struct Config: Codable {
         ollamaEndpoint: "http://localhost:11434",
         launchAtLogin: false,
         logTranscriptions: true,
-        punctuationEnabled: systemRAMGB > 8
+        punctuationEnabled: systemRAMGB > 8,
+        filePunctuationEnabled: false
     )
 
     /// System RAM in GB

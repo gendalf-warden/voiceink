@@ -3,9 +3,14 @@ import Carbon
 import Foundation
 
 public class TextInserter {
+    /// Length of last inserted text (including trailing space) for undo
+    public private(set) var lastInsertedLength: Int = 0
+
     public init() {}
 
     public func insert(text: String) {
+        let insertedText = text + " "
+        lastInsertedLength = insertedText.count
         let pasteboard = NSPasteboard.general
 
         // Save current clipboard
@@ -79,6 +84,32 @@ public class TextInserter {
         }
 
         return nil
+    }
+
+    /// Undo last insertion: select N characters backwards and delete them
+    public func undoLastInsertion() {
+        guard lastInsertedLength > 0 else { return }
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        // Shift+Left arrow N times to select inserted text
+        for _ in 0..<lastInsertedLength {
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 123, keyDown: true) // Left arrow
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 123, keyDown: false)
+            keyDown?.flags = .maskShift
+            keyUp?.flags = .maskShift
+            keyDown?.post(tap: .cghidEventTap)
+            keyUp?.post(tap: .cghidEventTap)
+        }
+
+        // Delete selected text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
+            let delDown = CGEvent(keyboardEventSource: source, virtualKey: 51, keyDown: true) // Delete key
+            let delUp = CGEvent(keyboardEventSource: source, virtualKey: 51, keyDown: false)
+            delDown?.post(tap: .cghidEventTap)
+            delUp?.post(tap: .cghidEventTap)
+            log("Undo: removed \(lastInsertedLength) chars")
+            lastInsertedLength = 0
+        }
     }
 
     public static func checkAccessibility() -> Bool {

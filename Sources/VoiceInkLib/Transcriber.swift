@@ -77,11 +77,122 @@ public class Transcriber {
         log("Server stopped", tag: "Transcriber")
     }
 
-    public func transcribe(audioURL: URL, timeout: TimeInterval = 30) async throws -> String {
+    public func transcribe(audioURL: URL, timeout: TimeInterval = 30, languageOverride: String? = nil) async throws -> String {
+        let language = languageOverride ?? config.language
+        let (text, _) = try await sendInference(
+            audioURL: audioURL,
+            timeout: timeout,
+            language: language,
+            responseFormat: "text"
+        )
+        let stripped = Transcriber.stripForeignChars(text, language: language)
+        return Transcriber.removeHallucinations(stripped)
+    }
+
+    /// Transcribe and detect language. Used on first chunk of a file to lock language for subsequent chunks.
+    /// Returns (cleaned text, detected language ISO code like "ru"/"en").
+    public func transcribeDetectLanguage(audioURL: URL, timeout: TimeInterval = 30) async throws -> (text: String, language: String) {
+        let (text, language) = try await sendInference(
+            audioURL: audioURL,
+            timeout: timeout,
+            language: "auto",
+            responseFormat: "verbose_json"
+        )
+        return (Transcriber.removeHallucinations(text), Transcriber.toISOCode(language))
+    }
+
+    /// Convert Whisper's language output to ISO 639-1 code.
+    /// Whisper sometimes returns full names ("russian") and sometimes ISO codes ("ru").
+    public static func toISOCode(_ lang: String) -> String {
+        let normalized = lang.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        // Already ISO 639-1 (2-char lowercase)
+        if normalized.count == 2 { return normalized }
+        // Common full names → ISO
+        let map: [String: String] = [
+            "russian": "ru", "english": "en", "chinese": "zh",
+            "japanese": "ja", "korean": "ko", "spanish": "es",
+            "french": "fr", "german": "de", "italian": "it",
+            "portuguese": "pt", "dutch": "nl", "polish": "pl",
+            "ukrainian": "uk", "turkish": "tr", "arabic": "ar",
+            "hindi": "hi", "vietnamese": "vi", "thai": "th",
+            "indonesian": "id", "greek": "el", "hebrew": "he",
+            "czech": "cs", "hungarian": "hu", "romanian": "ro",
+            "swedish": "sv", "norwegian": "no", "danish": "da",
+            "finnish": "fi", "bulgarian": "bg", "serbian": "sr",
+            "croatian": "hr", "slovak": "sk", "slovenian": "sl",
+        ]
+        return map[normalized] ?? normalized
+    }
+
+    /// Check if the text's script matches the expected language.
+    /// Used to detect mis-auto-detected chunks without a verbose_json round-trip.
+    /// Returns true if at least `minRatio` of alphabetic chars are in the expected script.
+    public static func scriptMatches(_ text: String, language: String, minRatio: Double = 0.3) -> Bool {
+        let lang = language.lowercased()
+        // For very short text (< 5 alphabetic chars), can't reliably tell — accept
+        let alphabetic = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        if alphabetic.count < 5 { return true }
+
+        let matchCount = alphabetic.filter { scalar in
+            let v = scalar.value
+            switch lang {
+            case "ru", "uk", "bg", "sr", "mk", "be":
+                // Cyrillic: U+0400-U+04FF (+ extensions)
+                return (0x0400...0x04FF).contains(v) || (0x0500...0x052F).contains(v)
+            case "en", "es", "fr", "de", "it", "pt", "nl", "pl", "cs", "sk", "sv", "no", "da", "fi", "hu", "ro", "tr", "id", "vi":
+                // Latin: basic + supplements
+                return (0x0041...0x005A).contains(v) || (0x0061...0x007A).contains(v)
+                    || (0x00C0...0x024F).contains(v)
+            case "zh", "ja", "ko":
+                return (0x3040...0x309F).contains(v) || (0x30A0...0x30FF).contains(v)
+                    || (0x4E00...0x9FFF).contains(v) || (0xAC00...0xD7AF).contains(v)
+            case "ar", "he":
+                return (0x0590...0x06FF).contains(v)
+            case "el":
+                return (0x0370...0x03FF).contains(v)
+            default:
+                return true  // unknown language — don't flag
+            }
+        }.count
+
+        let ratio = Double(matchCount) / Double(alphabetic.count)
+        return ratio >= minRatio
+    }
+
+    /// Strip characters that shouldn't appear in text of the given language.
+    /// Defense against Whisper hallucinating CJK/other foreign characters on unclear audio.
+    public static func stripForeignChars(_ text: String, language: String?) -> String {
+        guard let lang = language?.lowercased(), !lang.isEmpty, lang != "auto" else { return text }
+        // CJK Unicode ranges (Chinese/Japanese/Korean)
+        // Hiragana: U+3040-U+309F, Katakana: U+30A0-U+30FF
+        // CJK Unified Ideographs: U+4E00-U+9FFF, U+3400-U+4DBF
+        // Hangul: U+AC00-U+D7AF, Hangul Jamo: U+1100-U+11FF
+        // We strip these for non-CJK target languages
+        let cjkLanguages: Set<String> = ["zh", "ja", "ko"]
+        if cjkLanguages.contains(lang) { return text }
+
+        let scalars = text.unicodeScalars.filter { scalar in
+            let v = scalar.value
+            let isCJK =
+                (0x3040...0x309F).contains(v) || // Hiragana
+                (0x30A0...0x30FF).contains(v) || // Katakana
+                (0x4E00...0x9FFF).contains(v) || // CJK Unified
+                (0x3400...0x4DBF).contains(v) || // CJK Extension A
+                (0xAC00...0xD7AF).contains(v) || // Hangul Syllables
+                (0x1100...0x11FF).contains(v)    // Hangul Jamo
+            return !isCJK
+        }
+        let result = String(String.UnicodeScalarView(scalars))
+        // Collapse multiple spaces from removed characters
+        return result.replacingOccurrences(of: "  ", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Low-level inference call. Returns (text, detectedLanguage). detectedLanguage is "" for non-verbose formats.
+    private func sendInference(audioURL: URL, timeout: TimeInterval, language: String, responseFormat: String) async throws -> (String, String) {
         let url = URL(string: "http://\(serverHost):\(serverPort)/inference")!
         let audioData = try Data(contentsOf: audioURL)
 
-        // Build multipart form data
         let boundary = UUID().uuidString
         var body = Data()
 
@@ -97,12 +208,11 @@ public class Transcriber {
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
-        body.append("text\r\n".data(using: .utf8)!)
+        body.append("\(responseFormat)\r\n".data(using: .utf8)!)
 
-        // Send language per-request (matches server default, but explicit is safer)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(config.language)\r\n".data(using: .utf8)!)
+        body.append("\(language)\r\n".data(using: .utf8)!)
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
@@ -119,7 +229,68 @@ public class Transcriber {
             throw TranscriberError.processFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body)")
         }
 
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if responseFormat == "text" {
+            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return (text, "")
+        } else {
+            // verbose_json: { "text": "...", "language": "ru", "segments": [...] }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let text = (json["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let detectedLang = (json["language"] as? String) ?? ""
+            return (text, detectedLang)
+        }
+    }
+
+    /// Remove common Whisper hallucinations that appear on silence/unclear audio.
+    /// These are phrases Whisper was trained on (captions, subtitles) and emits
+    /// when it has nothing to transcribe.
+    public static func removeHallucinations(_ text: String) -> String {
+        // Known hallucination patterns (case-insensitive, matched at end OR as standalone)
+        let patterns = [
+            "продолжение следует",
+            "продолжение следует...",
+            "продолжение следует…",
+            "субтитры подогнал",
+            "субтитры делал",
+            "редактор субтитров",
+            "корректор субтитров",
+            "thanks for watching",
+            "thank you for watching",
+            "субтитры создавал",
+            "субтитры сделал",
+        ]
+        var result = text
+        // Remove "you" or "You." if the entire output is just that (silence hallucination)
+        let trimmed = result.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        if trimmed.lowercased() == "you" {
+            return ""
+        }
+        // Remove hallucination phrases. Two cases:
+        // A) Trailing hallucination after real text — match whitespace + pattern, keep real text
+        // B) Standalone hallucination (entire chunk is just the phrase) — match from start
+        for pattern in patterns {
+            let escaped = NSRegularExpression.escapedPattern(for: pattern)
+            // Case A: trailing (real text ... [ws] Pattern ...)
+            if let regex = try? NSRegularExpression(
+                pattern: "\\s+\(escaped).*$",
+                options: [.caseInsensitive]
+            ) {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+            }
+            // Case B: standalone (^ Pattern ...) — only if the entire (trimmed) text matches
+            if let regex = try? NSRegularExpression(
+                pattern: "^\(escaped)[\\s\\.,!?…\\-—]*$",
+                options: [.caseInsensitive]
+            ) {
+                let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                let range = NSRange(trimmed.startIndex..., in: trimmed)
+                if regex.firstMatch(in: trimmed, options: [], range: range) != nil {
+                    result = ""
+                }
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @discardableResult

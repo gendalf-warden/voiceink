@@ -23,6 +23,7 @@ public class StatusBarController {
     public var onOpenSettings: (() -> Void)?
     public var onOpenLog: (() -> Void)?
     public var onTranscribeFile: (() -> Void)?
+    public var onUndoDictation: (() -> Void)?
 
     public var state: AppState = .idle {
         didSet {
@@ -114,6 +115,11 @@ public class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Undo last dictation
+        let undoItem = NSMenuItem(title: "Undo Dictation", action: #selector(undoDictationAction), keyEquivalent: "z")
+        undoItem.target = self
+        menu.addItem(undoItem)
+
         // Transcribe file
         let transcribeItem = NSMenuItem(title: "Transcribe File…", action: #selector(transcribeFileAction), keyEquivalent: "t")
         transcribeItem.target = self
@@ -139,6 +145,10 @@ public class StatusBarController {
         menu.addItem(quitItem)
 
         statusItem?.menu = menu
+    }
+
+    @objc private func undoDictationAction() {
+        onUndoDictation?()
     }
 
     @objc private func transcribeFileAction() {

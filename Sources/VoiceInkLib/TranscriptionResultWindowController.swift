@@ -1,14 +1,25 @@
 import AppKit
 import Foundation
 
-/// Window that shows file transcription progress and result
+/// Window that shows file transcription progress and streams chunks as they arrive.
+/// Supports: timestamp toggle, Copy, Save as TXT/SRT/MD, live stats.
 public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var statusLabel: NSTextField!
-    private var spinner: NSProgressIndicator!
+    private var statsLabel: NSTextField!
+    private var progressBar: NSProgressIndicator!
     private var textView: NSTextView!
     private var scrollView: NSScrollView!
     private var copyButton: NSButton!
+    private var saveButton: NSButton!
+    private var timestampsCheckbox: NSButton!
+
+    private var chunks: [FileTranscriptionManager.ChunkResult] = []
+    private var showTimestamps: Bool = false
+    private var pipelineStart: Date?
+    private var totalDuration: TimeInterval = 0
+    private var totalChunks: Int = 0
+    private var tickTimer: Timer?
 
     public func show() {
         if let existing = window, existing.isVisible {
@@ -17,8 +28,8 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let width: CGFloat = 560
-        let height: CGFloat = 420
+        let width: CGFloat = 640
+        let height: CGFloat = 480
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -30,38 +41,38 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.level = .floating
-        window.minSize = NSSize(width: 360, height: 260)
+        window.minSize = NSSize(width: 480, height: 320)
 
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         contentView.autoresizingMask = [.width, .height]
         window.contentView = contentView
 
-        // Status row (spinner + label)
-        spinner = NSProgressIndicator()
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.frame = NSRect(x: 16, y: height - 36, width: 18, height: 18)
-        spinner.autoresizingMask = [.maxXMargin, .minYMargin]
-        spinner.startAnimation(nil)
-        contentView.addSubview(spinner)
-
+        // Status label (top)
         statusLabel = NSTextField(labelWithString: "Preparing...")
-        statusLabel.frame = NSRect(x: 40, y: height - 38, width: width - 56, height: 20)
+        statusLabel.frame = NSRect(x: 16, y: height - 32, width: width - 32, height: 18)
         statusLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.autoresizingMask = [.width, .minYMargin]
         contentView.addSubview(statusLabel)
 
-        // Text view in scroll view
-        scrollView = NSScrollView(frame: NSRect(x: 16, y: 52, width: width - 32, height: height - 92))
+        // Progress bar
+        progressBar = NSProgressIndicator()
+        progressBar.style = .bar
+        progressBar.isIndeterminate = true
+        progressBar.frame = NSRect(x: 16, y: height - 52, width: width - 32, height: 8)
+        progressBar.autoresizingMask = [.width, .minYMargin]
+        progressBar.startAnimation(nil)
+        contentView.addSubview(progressBar)
+
+        // Text view (scrollable)
+        scrollView = NSScrollView(frame: NSRect(x: 16, y: 88, width: width - 32, height: height - 152))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .bezelBorder
 
         textView = NSTextView(frame: scrollView.contentView.bounds)
         textView.autoresizingMask = [.width, .height]
-        textView.isEditable = false
+        textView.isEditable = true
         textView.isSelectable = true
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textContainerInset = NSSize(width: 8, height: 8)
@@ -70,10 +81,34 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         scrollView.documentView = textView
         contentView.addSubview(scrollView)
 
+        // Stats label (below text view)
+        statsLabel = NSTextField(labelWithString: "")
+        statsLabel.frame = NSRect(x: 16, y: 56, width: width - 32, height: 16)
+        statsLabel.font = NSFont.systemFont(ofSize: 11)
+        statsLabel.textColor = .tertiaryLabelColor
+        statsLabel.autoresizingMask = [.width, .maxYMargin]
+        contentView.addSubview(statsLabel)
+
+        // Timestamps checkbox
+        timestampsCheckbox = NSButton(checkboxWithTitle: "Show timestamps", target: self, action: #selector(toggleTimestamps))
+        timestampsCheckbox.frame = NSRect(x: 16, y: 18, width: 160, height: 20)
+        timestampsCheckbox.autoresizingMask = [.maxXMargin, .maxYMargin]
+        timestampsCheckbox.state = .off
+        contentView.addSubview(timestampsCheckbox)
+
+        // Save button
+        saveButton = NSButton(title: "Save…", target: self, action: #selector(saveText))
+        saveButton.frame = NSRect(x: width - 184, y: 12, width: 80, height: 28)
+        saveButton.bezelStyle = .rounded
+        saveButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        saveButton.isEnabled = false
+        contentView.addSubview(saveButton)
+
         // Copy button
         copyButton = NSButton(title: "Copy", target: self, action: #selector(copyText))
         copyButton.frame = NSRect(x: width - 96, y: 12, width: 80, height: 28)
         copyButton.bezelStyle = .rounded
+        copyButton.keyEquivalent = "\r"
         copyButton.autoresizingMask = [.minXMargin, .maxYMargin]
         copyButton.isEnabled = false
         contentView.addSubview(copyButton)
@@ -89,15 +124,51 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    public func setResult(_ text: String) {
+    public func beginStreaming(totalChunks: Int, totalDuration: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.textView?.string = text
-            self.spinner?.stopAnimation(nil)
-            self.spinner?.isHidden = true
+            self.totalChunks = totalChunks
+            self.totalDuration = totalDuration
+            self.pipelineStart = Date()
+            self.chunks = []
+            self.progressBar?.isIndeterminate = false
+            self.progressBar?.minValue = 0
+            self.progressBar?.maxValue = Double(totalChunks)
+            self.progressBar?.doubleValue = 0
+            self.textView?.string = ""
             self.copyButton?.isEnabled = true
+            self.saveButton?.isEnabled = true
+
+            // Tick elapsed time every second
+            self.tickTimer?.invalidate()
+            self.tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.updateStats()
+            }
+        }
+    }
+
+    public func appendChunk(_ chunk: FileTranscriptionManager.ChunkResult) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.chunks.append(chunk)
+            self.chunks.sort { $0.index < $1.index }
+            self.progressBar?.doubleValue = Double(self.chunks.count)
+            self.renderText()
+            self.updateStats()
+            // Auto-scroll to bottom
+            self.textView?.scrollRangeToVisible(NSRange(location: self.textView?.string.count ?? 0, length: 0))
+        }
+    }
+
+    public func finishStreaming(totalTime: TimeInterval) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.tickTimer?.invalidate()
+            self.tickTimer = nil
+            self.progressBar?.doubleValue = Double(self.totalChunks)
             self.statusLabel?.stringValue = "Done"
             self.statusLabel?.textColor = .labelColor
+            self.updateStats(finalTime: totalTime)
         }
     }
 
@@ -105,8 +176,8 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.textView?.string = text
-            self.spinner?.stopAnimation(nil)
-            self.spinner?.isHidden = true
+            self.progressBar?.stopAnimation(nil)
+            self.progressBar?.isHidden = true
             self.statusLabel?.stringValue = "Error"
             self.statusLabel?.textColor = .systemRed
         }
@@ -122,17 +193,173 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    // MARK: - Rendering
+
+    private func renderText() {
+        let text = showTimestamps ? chunksWithTimestamps() : chunksPlainText()
+        textView?.string = text
+    }
+
+    private func chunksPlainText() -> String {
+        chunks.map { $0.text }.joined(separator: " ")
+    }
+
+    private func chunksWithTimestamps() -> String {
+        chunks.map { chunk in
+            "[\(formatTime(chunk.startTime))] \(chunk.text)"
+        }.joined(separator: "\n")
+    }
+
+    private func chunksAsSRT() -> String {
+        chunks.enumerated().map { (i, chunk) in
+            """
+            \(i + 1)
+            \(formatSRTTime(chunk.startTime)) --> \(formatSRTTime(chunk.endTime))
+            \(chunk.text)
+            """
+        }.joined(separator: "\n\n")
+    }
+
+    private func chunksAsMarkdown() -> String {
+        var out = "# Transcription\n\n"
+        for chunk in chunks {
+            out += "**[\(formatTime(chunk.startTime))]** \(chunk.text)\n\n"
+        }
+        return out
+    }
+
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+
+    private func formatSRTTime(_ seconds: TimeInterval) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        let ms = Int((seconds - floor(seconds)) * 1000)
+        return String(format: "%02d:%02d:%02d,%03d", h, m, s, ms)
+    }
+
+    private func updateStats(finalTime: TimeInterval? = nil) {
+        let text = chunksPlainText()
+        let words = text.split(whereSeparator: { $0.isWhitespace }).count
+        let chars = text.count
+        var parts: [String] = []
+        parts.append("\(words) words")
+        parts.append("\(chars) chars")
+        parts.append("\(chunks.count)/\(totalChunks) chunks")
+        if totalDuration > 0 {
+            parts.append("audio \(formatTime(totalDuration))")
+        }
+        if let finalTime = finalTime {
+            parts.append("processed in \(formatElapsed(finalTime))")
+            // Speed stats: realtime factor + words per second of audio
+            if totalDuration > 0 {
+                let rtf = totalDuration / finalTime
+                parts.append(String(format: "%.1f× realtime", rtf))
+            }
+            if totalDuration > 0 {
+                let wpm = Double(words) / totalDuration * 60
+                parts.append(String(format: "%.0f words/min (audio)", wpm))
+            }
+        } else if let start = pipelineStart {
+            let elapsed = Date().timeIntervalSince(start)
+            parts.append("elapsed \(formatElapsed(elapsed))")
+            // ETA: extrapolate from completed chunks
+            if chunks.count > 0 && chunks.count < totalChunks {
+                let avgPerChunk = elapsed / Double(chunks.count)
+                let remaining = avgPerChunk * Double(totalChunks - chunks.count)
+                parts.append("ETA \(formatElapsed(remaining))")
+            }
+        }
+        statsLabel?.stringValue = parts.joined(separator: " · ")
+    }
+
+    /// Format duration as M:SS or H:MM:SS (no decimals, always minutes+seconds).
+    private func formatElapsed(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+
+    // MARK: - Actions
+
+    @objc private func toggleTimestamps() {
+        showTimestamps = (timestampsCheckbox.state == .on)
+        renderText()
+    }
+
     @objc private func copyText() {
-        guard let text = textView?.string, !text.isEmpty else { return }
+        let text = textView?.string ?? ""
+        guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
 
-        // Visual feedback
         let originalTitle = copyButton.title
         copyButton.title = "Copied!"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             self?.copyButton?.title = originalTitle
         }
+    }
+
+    @objc private func saveText() {
+        let panel = NSSavePanel()
+        panel.title = "Save transcription"
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "transcription.txt"
+
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 40))
+        let label = NSTextField(labelWithString: "Format:")
+        label.frame = NSRect(x: 0, y: 10, width: 60, height: 20)
+        accessory.addSubview(label)
+
+        let popup = NSPopUpButton(frame: NSRect(x: 60, y: 8, width: 200, height: 24))
+        popup.addItems(withTitles: ["Plain text (.txt)", "SubRip subtitles (.srt)", "Markdown (.md)"])
+        accessory.addSubview(popup)
+        panel.accessoryView = accessory
+
+        popup.target = self
+        popup.action = #selector(formatChanged(_:))
+        objc_setAssociatedObject(popup, "panel", panel, .OBJC_ASSOCIATION_RETAIN)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let content: String
+        switch popup.indexOfSelectedItem {
+        case 1: content = chunksAsSRT()
+        case 2: content = chunksAsMarkdown()
+        default: content = textView?.string ?? chunksPlainText()
+        }
+
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            log("Save failed: \(error)", tag: "TranscriptionResult")
+        }
+    }
+
+    @objc private func formatChanged(_ sender: NSPopUpButton) {
+        guard let panel = objc_getAssociatedObject(sender, "panel") as? NSSavePanel else { return }
+        let current = panel.nameFieldStringValue as NSString
+        let base = current.deletingPathExtension
+        let ext: String
+        switch sender.indexOfSelectedItem {
+        case 1: ext = "srt"
+        case 2: ext = "md"
+        default: ext = "txt"
+        }
+        panel.nameFieldStringValue = "\(base).\(ext)"
     }
 
     // MARK: - NSWindowDelegate
