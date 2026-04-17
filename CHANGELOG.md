@@ -3,7 +3,7 @@
 All notable changes to VoiceInk are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.2b] - 2026-04-17
 
 ### Added
 - **Chunked file transcription** — splits WAV into 30s chunks at silence boundaries, streams results
