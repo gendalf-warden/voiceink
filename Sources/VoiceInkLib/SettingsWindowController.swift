@@ -25,7 +25,7 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         }
 
         let width: CGFloat = 500
-        let height: CGFloat = 280
+        let height: CGFloat = 320
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -78,15 +78,28 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         logTranscriptionsCheckbox.state = config.logTranscriptions ? .on : .off
         contentView.addSubview(logTranscriptionsCheckbox)
 
-        // --- Smart punctuation: dictation ---
-        punctuationCheckbox = NSButton(checkboxWithTitle: "Умная пунктуация при диктовке", target: self, action: #selector(punctuationToggled))
-        punctuationCheckbox.frame = NSRect(x: checkboxLeft, y: height - 150, width: checkboxWidth, height: 22)
+        // --- Smart punctuation block ---
+        let ramGB = Config.systemRAMGB
+        let sectionTitle = NSTextField(labelWithString: "Умная пунктуация")
+        sectionTitle.frame = NSRect(x: checkboxLeft, y: height - 150, width: checkboxWidth, height: 18)
+        sectionTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        contentView.addSubview(sectionTitle)
+
+        let sectionHint = NSTextField(labelWithString: "Требует 16+ ГБ RAM (у вас: \(ramGB) ГБ)")
+        sectionHint.frame = NSRect(x: checkboxLeft, y: height - 170, width: checkboxWidth, height: 16)
+        sectionHint.font = NSFont.systemFont(ofSize: 11)
+        sectionHint.textColor = .secondaryLabelColor
+        contentView.addSubview(sectionHint)
+
+        let subItemLeft = checkboxLeft + 16  // indent to show grouping
+
+        punctuationCheckbox = NSButton(checkboxWithTitle: "При диктовке", target: self, action: #selector(punctuationToggled))
+        punctuationCheckbox.frame = NSRect(x: subItemLeft, y: height - 198, width: checkboxWidth - 16, height: 22)
         punctuationCheckbox.state = config.punctuationEnabled ? .on : .off
         contentView.addSubview(punctuationCheckbox)
 
-        // --- Smart punctuation: file transcription ---
-        filePunctuationCheckbox = NSButton(checkboxWithTitle: "Умная пунктуация при транскрипции файлов", target: self, action: #selector(filePunctuationToggled))
-        filePunctuationCheckbox.frame = NSRect(x: checkboxLeft, y: height - 180, width: checkboxWidth, height: 22)
+        filePunctuationCheckbox = NSButton(checkboxWithTitle: "При транскрипции файлов", target: self, action: #selector(filePunctuationToggled))
+        filePunctuationCheckbox.frame = NSRect(x: subItemLeft, y: height - 224, width: checkboxWidth - 16, height: 22)
         filePunctuationCheckbox.state = config.filePunctuationEnabled ? .on : .off
         contentView.addSubview(filePunctuationCheckbox)
 

@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "voiceink", targets: ["VoiceInk"]),
+        .executable(name: "UIPreview", targets: ["UIPreview"]),
     ],
     targets: [
         .executableTarget(
@@ -15,6 +16,13 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreAudio"),
+            ]
+        ),
+        .executableTarget(
+            name: "UIPreview",
+            dependencies: ["VoiceInkLib"],
+            linkerSettings: [
+                .linkedFramework("AppKit"),
             ]
         ),
         .target(

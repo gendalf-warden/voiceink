@@ -24,6 +24,7 @@ public class StatusBarController {
     public var onOpenLog: (() -> Void)?
     public var onTranscribeFile: (() -> Void)?
     public var onUndoDictation: (() -> Void)?
+    public var onOpenReplacements: (() -> Void)?
 
     public var state: AppState = .idle {
         didSet {
@@ -132,6 +133,11 @@ public class StatusBarController {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        // Replacements editor
+        let replacementsItem = NSMenuItem(title: "Replacements…", action: #selector(openReplacementsAction), keyEquivalent: "r")
+        replacementsItem.target = self
+        menu.addItem(replacementsItem)
+
         // Open Log
         let logItem = NSMenuItem(title: "Open Log…", action: #selector(openLogAction), keyEquivalent: "")
         logItem.target = self
@@ -157,6 +163,10 @@ public class StatusBarController {
 
     @objc private func openSettingsAction() {
         onOpenSettings?()
+    }
+
+    @objc private func openReplacementsAction() {
+        onOpenReplacements?()
     }
 
     @objc private func openLogAction() {

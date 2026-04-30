@@ -11,6 +11,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var llamaClient: LlamaClient?
     private var config: Config!
     private var settingsWindow: SettingsWindowController?
+    private var replacementsWindow: ReplacementsWindowController?
     private var splash: SplashWindowController?
     private var serverAvailable = false
     private var fileTranscriptionManager: FileTranscriptionManager?
@@ -20,6 +21,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingStartTime: Date?
     private let minRecordingDuration: TimeInterval = 0.5
     private let textInserter = TextInserter()
+    /// True when LLM is loaded eagerly at startup (because dictation needs it warm).
+    /// When false but file transcription needs LLM, we load lazily per-file.
+    private var llmEagerlyLoaded = false
 
     private var state: AppState = .idle {
         didSet {
@@ -78,6 +82,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.onUndoDictation = { [weak self] in
             self?.textInserter.undoLastInsertion()
         }
+        statusBar.onOpenReplacements = { [weak self] in
+            self?.openReplacements()
+        }
 
         audioRecorder = AudioRecorder()
 
@@ -99,38 +106,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             // Milestone 2: LLM
+            // Eager load (always-warm): only if dictation needs it (sub-second latency required).
+            // File transcription lazy-loads on demand and unloads after (saves ~2 GB idle RAM).
             DispatchQueue.main.async { self.splash?.setMilestone(2) }
-            if !self.config.punctuationEnabled {
-                log("Punctuation disabled in settings — skipping LLM")
-            } else if self.config.llamaAvailable {
-                self.llamaClient = LlamaClient(serverPath: self.config.llamaServerPath, modelPath: self.config.llamaModelPath)
-                do {
-                    try self.llamaClient!.startServer()
-                    log("Bundled LLM server started")
-                    let semaphore = DispatchSemaphore(value: 0)
-                    Task {
-                        await self.llamaClient!.warmup()
-                        semaphore.signal()
-                    }
-                    semaphore.wait()
-                } catch {
-                    log("Failed to start bundled LLM: \(error)")
-                    self.llamaClient = nil
-                }
-            }
-            if self.config.punctuationEnabled && self.llamaClient == nil && self.config.ollamaEnabled {
-                self.ollamaClient = OllamaClient(endpoint: self.config.ollamaEndpoint, model: self.config.ollamaModel)
-                let semaphore = DispatchSemaphore(value: 0)
-                Task {
-                    let available = await self.ollamaClient!.isAvailable()
-                    log("Ollama available: \(available)")
-                    if available {
-                        log("Warming up LLM model...")
-                        await self.ollamaClient!.warmup()
-                    }
-                    semaphore.signal()
-                }
-                semaphore.wait()
+            if self.config.punctuationEnabled {
+                self.llmEagerlyLoaded = true
+                self.startLLMSync()
+            } else if self.config.filePunctuationEnabled {
+                log("LLM lazy mode: will load only during file transcription")
+            } else {
+                log("Smart punctuation disabled for both dictation and files — LLM never loaded")
             }
 
             // Milestone 3: Permissions & hotkey
@@ -241,9 +226,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 // Step 1: Transcribe (async)
                 let asrStart = Date()
-                let rawText = try await self.transcriber.transcribe(audioURL: audioURL)
+                let asrText = try await self.transcriber.transcribe(audioURL: audioURL)
                     .stripCombiningAccents()
                 let asrTime = Date().timeIntervalSince(asrStart)
+
+                // Step 1.5: Apply user replacements dictionary (after Whisper, before LLM)
+                let rawText = TextReplacer.apply(asrText, replacements: self.config.replacements)
+                if rawText != asrText {
+                    log("Replacements applied: '\(asrText)' → '\(rawText)'")
+                }
+
                 let rawDisplay = self.config.logTranscriptions ? rawText : "[\(rawText.count) chars]"
                 log("Raw (\(String(format: "%.1f", asrTime))s): \(rawDisplay)")
 
@@ -316,6 +308,70 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - LLM lifecycle
+
+    /// Synchronously start LLM (bundled llama-server preferred, Ollama fallback) and warm it up.
+    /// Used at startup when dictation needs the LLM always-warm.
+    private func startLLMSync() {
+        if config.llamaAvailable {
+            llamaClient = LlamaClient(serverPath: config.llamaServerPath, modelPath: config.llamaModelPath)
+            do {
+                try llamaClient!.startServer()
+                log("Bundled LLM server started")
+                let sem = DispatchSemaphore(value: 0)
+                Task {
+                    await self.llamaClient!.warmup()
+                    sem.signal()
+                }
+                sem.wait()
+                return
+            } catch {
+                log("Failed to start bundled LLM: \(error)")
+                llamaClient = nil
+            }
+        }
+        if config.ollamaEnabled {
+            ollamaClient = OllamaClient(endpoint: config.ollamaEndpoint, model: config.ollamaModel)
+            let sem = DispatchSemaphore(value: 0)
+            Task {
+                let available = await self.ollamaClient!.isAvailable()
+                log("Ollama available: \(available)")
+                if available {
+                    log("Warming up LLM model...")
+                    await self.ollamaClient!.warmup()
+                }
+                sem.signal()
+            }
+            sem.wait()
+        }
+    }
+
+    /// Ensure LLM is ready for an on-demand request (file transcription).
+    /// No-op if already loaded eagerly. Returns true if LLM is now available.
+    private func ensureLLMReady() async -> Bool {
+        if llmEagerlyLoaded { return llamaClient?.isServerRunning == true || ollamaClient != nil }
+        if llamaClient?.isServerRunning == true { return true }
+        if ollamaClient != nil { return true }
+        log("Lazy-loading LLM for file transcription...")
+        await Task.detached { [weak self] in self?.startLLMSync() }.value
+        return llamaClient?.isServerRunning == true || ollamaClient != nil
+    }
+
+    /// Release lazily-loaded LLM after a file transcription. No-op if eagerly loaded.
+    private func releaseLazyLLM() async {
+        guard !llmEagerlyLoaded else { return }
+        if let llama = llamaClient {
+            llama.stopServer()
+            llamaClient = nil
+            log("Lazy LLM unloaded (bundled llama-server)")
+        }
+        if let ollama = ollamaClient {
+            await ollama.unloadModel()
+            ollamaClient = nil
+            log("Lazy LLM unloaded (Ollama)")
+        }
+    }
+
     // MARK: - File Transcription
 
     private func transcribeFile() {
@@ -326,10 +382,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         if fileTranscriptionManager == nil {
             fileTranscriptionManager = FileTranscriptionManager()
         }
-        fileTranscriptionManager?.llamaClient = llamaClient
-        fileTranscriptionManager?.ollamaClient = ollamaClient
-        fileTranscriptionManager?.punctuationEnabled = config.filePunctuationEnabled
-        fileTranscriptionManager?.startFileTranscription(transcriber: transcriber)
+        let manager = fileTranscriptionManager!
+        manager.punctuationEnabled = config.filePunctuationEnabled
+        manager.replacements = config.replacements
+        manager.onLLMNeeded = { [weak self] in
+            await self?.ensureLLMReady() ?? false
+        }
+        manager.onLLMRelease = { [weak self] in
+            await self?.releaseLazyLLM()
+        }
+        manager.llamaClientProvider = { [weak self] in self?.llamaClient }
+        manager.ollamaClientProvider = { [weak self] in self?.ollamaClient }
+        manager.startFileTranscription(transcriber: transcriber)
     }
 
     // MARK: - Settings
@@ -343,6 +407,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindow?.showWindow()
         settingsWindow?.updateConfig(config)
+    }
+
+    private func openReplacements() {
+        if replacementsWindow == nil {
+            replacementsWindow = ReplacementsWindowController(config: config)
+            replacementsWindow?.onConfigChanged = { [weak self] newConfig in
+                self?.applyConfig(newConfig)
+            }
+        }
+        replacementsWindow?.updateConfig(config)
+        replacementsWindow?.showWindow()
     }
 
     /// Apply config changes live without restarting the app

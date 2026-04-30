@@ -11,11 +11,22 @@ import UniformTypeIdentifiers
 public class FileTranscriptionManager {
     private var resultWindow: TranscriptionResultWindowController?
     private let converter = AudioConverter()
-    public var llamaClient: LlamaClient?
-    public var ollamaClient: OllamaClient?
+    /// Returns the current llama client (may be nil before lazy load or after release)
+    public var llamaClientProvider: (() -> LlamaClient?)?
+    /// Returns the current ollama client (may be nil before lazy load or after release)
+    public var ollamaClientProvider: (() -> OllamaClient?)?
+    /// Called before pipeline starts. Should ensure LLM is loaded. Returns true if LLM is available.
+    public var onLLMNeeded: (() async -> Bool)?
+    /// Called after pipeline finishes. Should release LLM if it was lazy-loaded.
+    public var onLLMRelease: (() async -> Void)?
     public var punctuationEnabled: Bool = true
+    /// User replacements applied after Whisper, before LLM
+    public var replacements: [String: String] = [:]
     /// Number of concurrent ASR/LLM requests (2 = ~60% faster than sequential baseline)
     public var concurrency: Int = 2
+
+    private var llamaClient: LlamaClient? { llamaClientProvider?() }
+    private var ollamaClient: OllamaClient? { ollamaClientProvider?() }
 
     /// Thread-safe counter for tracking completed chunks across concurrent tasks
     private actor ChunkCounter {
@@ -96,6 +107,16 @@ public class FileTranscriptionManager {
 
             window.beginStreaming(totalChunks: totalChunks, totalDuration: duration)
 
+            // Step 3.5: Lazy-load LLM if needed (when dictation toggle is off but file toggle is on,
+            // LLM is not warm at startup — load it now, release after pipeline finishes).
+            if punctuationEnabled, let onNeeded = onLLMNeeded {
+                window.setStatus("Loading punctuation model...")
+                let ready = await onNeeded()
+                if !ready {
+                    log("LLM unavailable — files will use raw Whisper output", tag: "FileTranscription")
+                }
+            }
+
             // Step 4a: Detect language on first chunk — sets the "expected" language for the file.
             // Each chunk is still auto-detected (for legitimate code-switching), but if a chunk's
             // detection differs from expected, we re-transcribe with expected language forced
@@ -171,7 +192,9 @@ public class FileTranscriptionManager {
                             }
 
                             text = text.stripCombiningAccents()
-                            raw = Transcriber.stripForeignChars(text, language: filterLanguage)
+                            text = Transcriber.stripForeignChars(text, language: filterLanguage)
+                            // Apply user replacements before LLM
+                            raw = TextReplacer.apply(text, replacements: self.replacements)
                         } catch {
                             await asrSem.signal()
                             log("ASR failed for chunk \(chunk.index): \(error)", tag: "FileTranscription")
@@ -237,9 +260,14 @@ public class FileTranscriptionManager {
             window.finishStreaming(totalTime: totalTime)
             log("Transcription done in \(String(format: "%.1f", totalTime))s", tag: "FileTranscription")
 
+            // Release lazy-loaded LLM (no-op if eagerly loaded for dictation)
+            await onLLMRelease?()
+
         } catch {
             log("File transcription failed: \(error)", tag: "FileTranscription")
             window.setError("Error: \(error.localizedDescription)")
+            // Release on error too
+            await onLLMRelease?()
         }
     }
 }

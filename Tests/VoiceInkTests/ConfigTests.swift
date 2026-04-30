@@ -21,7 +21,8 @@ final class ConfigTests: XCTestCase {
             launchAtLogin: true,
             logTranscriptions: false,
             punctuationEnabled: true,
-            filePunctuationEnabled: true
+            filePunctuationEnabled: true,
+            replacements: ["Демале": "ДеМоле", "API": "АПИ"]
         )
 
         let encoder = JSONEncoder()
@@ -43,6 +44,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(decoded.logTranscriptions, config.logTranscriptions)
         XCTAssertEqual(decoded.punctuationEnabled, config.punctuationEnabled)
         XCTAssertEqual(decoded.filePunctuationEnabled, config.filePunctuationEnabled)
+        XCTAssertEqual(decoded.replacements, config.replacements)
     }
 
     // MARK: - Backward compatibility (missing optional fields)
@@ -74,6 +76,8 @@ final class ConfigTests: XCTestCase {
         _ = config.punctuationEnabled
         // filePunctuationEnabled defaults to false
         XCTAssertEqual(config.filePunctuationEnabled, false)
+        // replacements defaults to empty dict
+        XCTAssertEqual(config.replacements, [:])
     }
 
     // MARK: - llamaAvailable

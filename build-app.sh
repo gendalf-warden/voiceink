@@ -239,7 +239,7 @@ cp "$QWEN_MODEL_BLOB" "${RESOURCES}/models/qwen2.5-3b.gguf"
 
 # Step 5: Generate Info.plist
 PLIST_VERSION="${VERSION}"
-[ "$MODE" = "dev" ] && PLIST_VERSION="dev"
+[ "$MODE" = "dev" ] && PLIST_VERSION="${VERSION}+dev"
 echo "[5/7] Generating Info.plist (v${PLIST_VERSION})..."
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>

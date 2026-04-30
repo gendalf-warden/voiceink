@@ -19,6 +19,11 @@ public struct Config: Codable {
     /// Smart punctuation for file transcription. Off by default — raw Whisper output is usually
     /// good enough, and LLM adds ~60% processing time plus ~10% risk of word substitution.
     public var filePunctuationEnabled: Bool
+    /// User-defined word replacements applied after Whisper, before LLM.
+    /// Keys are Whisper output forms, values are the corrected forms.
+    /// Example: ["Демале": "ДеМоле", "вагена": "вагона"].
+    /// Matching is case-insensitive but the value is inserted verbatim.
+    public var replacements: [String: String]
 
     public init(
         whisperCliPath: String, whisperServerPath: String, whisperModelPath: String,
@@ -26,7 +31,8 @@ public struct Config: Codable {
         llamaServerPath: String, llamaModelPath: String,
         ollamaEnabled: Bool, ollamaModel: String, ollamaEndpoint: String,
         launchAtLogin: Bool, logTranscriptions: Bool,
-        punctuationEnabled: Bool, filePunctuationEnabled: Bool
+        punctuationEnabled: Bool, filePunctuationEnabled: Bool,
+        replacements: [String: String] = [:]
     ) {
         self.whisperCliPath = whisperCliPath
         self.whisperServerPath = whisperServerPath
@@ -43,6 +49,7 @@ public struct Config: Codable {
         self.logTranscriptions = logTranscriptions
         self.punctuationEnabled = punctuationEnabled
         self.filePunctuationEnabled = filePunctuationEnabled
+        self.replacements = replacements
     }
 
     public init(from decoder: Decoder) throws {
@@ -62,10 +69,18 @@ public struct Config: Codable {
         logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? true
         punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? (Config.systemRAMGB > 8)
         filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? false
+        replacements = try container.decodeIfPresent([String: String].self, forKey: .replacements) ?? [:]
     }
 
-    public static let configDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/voiceink")
+    /// Config directory. Overridable via VOICEINK_CONFIG_DIR env var (used by UIPreview tests
+    /// to avoid clobbering the production config).
+    public static let configDir: URL = {
+        if let override = ProcessInfo.processInfo.environment["VOICEINK_CONFIG_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/voiceink")
+    }()
     public static let configFile = configDir.appendingPathComponent("config.json")
 
     public static let defaultConfig = Config(
@@ -83,7 +98,8 @@ public struct Config: Codable {
         launchAtLogin: false,
         logTranscriptions: true,
         punctuationEnabled: systemRAMGB > 8,
-        filePunctuationEnabled: false
+        filePunctuationEnabled: false,
+        replacements: [:]
     )
 
     /// System RAM in GB
