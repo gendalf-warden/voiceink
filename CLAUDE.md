@@ -31,7 +31,7 @@ open VoiceInk.app        # запуск бандла
 ## Структура
 
 - `Sources/VoiceInk/main.swift` — entry point
-- `Sources/VoiceInkLib/` — вся логика (20 файлов)
+- `Sources/VoiceInkLib/` — вся логика (22 файла)
   - `AppDelegate.swift` — оркестратор, pipeline, state machine, first-run wizard → splash при старте
   - `Transcriber.swift` — whisper-server subprocess (:8178) + HTTP client, configurable timeout
   - `LlamaClient.swift` — bundled llama-server subprocess (:8179) + /v1/chat/completions, GGML_BACKEND_PATH, stderr capture
@@ -52,8 +52,11 @@ open VoiceInk.app        # запуск бандла
   - `AppState.swift` — enum: idle/recording/transcribing/postProcessing/error
   - `StringExtensions.swift` — `stripCombiningAccents()` и другие расширения String
   - `AsyncSemaphore.swift` — actor-based async семафор для concurrency limit
-- `Tests/VoiceInkTests/` — юнит-тесты (60 тестов)
-  - `KeyMapTests.swift`, `AppStateTests.swift`, `ConfigTests.swift`, `StringExtensionsTests.swift`, `AudioConverterTests.swift`, `TranscriberTests.swift`
+  - `TextReplacer.swift` — user-defined word replacements (word-boundary regex, case-insensitive)
+  - `ReplacementsWindowController.swift` — окно редактора словаря замен с live search
+- `Sources/UIPreview/main.swift` — fast UI iteration harness (swift run UIPreview)
+- `Tests/VoiceInkTests/` — юнит-тесты (73 теста)
+  - `KeyMapTests.swift`, `AppStateTests.swift`, `ConfigTests.swift`, `StringExtensionsTests.swift`, `AudioConverterTests.swift`, `TranscriberTests.swift`, `TextReplacerTests.swift`
 - `scripts/pre-merge-check.sh` — валидация перед мержем (build + test + release build)
 - `CHANGELOG.md` — история изменений по версиям (Keep a Changelog)
 - `build-app.sh` — сборка .app бандла в /tmp (обход iCloud xattr), dylib bundling, DMG (release only)
@@ -94,6 +97,9 @@ open VoiceInk.app        # запуск бандла
 - **Language filtering**: детект языка на первом чанке → scriptMatches на остальных → re-transcribe при mismatch → drop если не помогло. CJK-фильтр. Post-LLM script-check (ловит переводы qwen'а)
 - **Hallucination filters**: `Transcriber.removeHallucinations()` — "Продолжение следует...", lone "you", subtitle credits. Standalone-чанки целиком удаляются. 3× length guard в AppDelegate/FileTranscriptionManager
 - **Smart punctuation split**: `config.punctuationEnabled` — для диктовки (on), `config.filePunctuationEnabled` — для файлов (off по умолчанию). Основано на quality-эксперименте: LLM иногда перефразирует и меняет слова
+- **LLM lazy lifecycle**: dictation=on → eager load на старте; dictation=off+files=on → lazy load на каждой файловой транскрипции, выгрузка после; обе off → не загружается. Helpers: `startLLMSync`/`ensureLLMReady`/`releaseLazyLLM`. FileTranscriptionManager использует callbacks `onLLMNeeded`/`onLLMRelease`
+- **Replacements**: `config.replacements: [String: String]` — пользовательский словарь замен. Применяется через `TextReplacer.apply()` после Whisper, до LLM. Word-boundary, case-insensitive search, verbatim replacement
+- **UIPreview target**: для быстрой итерации UI без бандла — `./scripts/preview-ui.sh [window]`. Изолирует конфиг в `/tmp` через env `VOICEINK_CONFIG_DIR`
 
 ## Решённые баги
 

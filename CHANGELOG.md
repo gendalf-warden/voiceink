@@ -3,6 +3,36 @@
 All notable changes to VoiceInk are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Replacements dictionary** (P5.4): user-defined word replacements applied after
+  Whisper, before LLM. Native macOS table editor with live search field, click-to-edit
+  cells, ±  buttons. Menu: Replacements… (Cmd+R)
+- **LLM lazy lifecycle**: when dictation punctuation is OFF but file punctuation is
+  ON, LLM is loaded only during file transcription and unloaded after — saves ~2 GB
+  idle RAM
+- **Settings: «Умная пунктуация» grouped block** with RAM hint showing actual machine
+  memory (e.g. "Требует 16+ ГБ RAM (у вас: 36 ГБ)")
+- **UIPreview executable target** for fast UI iteration: `./scripts/preview-ui.sh`
+  compiles in ~1.5s and launches a single window without the .app bundle. Isolated
+  config in /tmp via VOICEINK_CONFIG_DIR env var
+- **Whisper.cpp hallucination fix**: hardcoded `/inference` path issue (already in
+  v1.8.4 upstream — backlog item to update)
+
+### Changed
+- Dev build version label is now `{VERSION}+dev` instead of just `dev` (visible
+  base version + dev marker)
+- Build scripts use `--scratch-path /tmp/voiceink-build-scratch` to avoid iCloud
+  Drive ModuleCache rename races
+- LLM startup logic refactored: `startLLMSync()` / `ensureLLMReady()` /
+  `releaseLazyLLM()` helpers in AppDelegate; FileTranscriptionManager uses
+  callbacks for LLM lifecycle (onLLMNeeded/onLLMRelease)
+
+### Fixed
+- LLM was not started when only file transcription needed it (previously checked
+  only dictation flag)
+
 ## [0.2b] - 2026-04-17
 
 ### Added
