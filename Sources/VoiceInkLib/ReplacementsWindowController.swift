@@ -246,6 +246,8 @@ public class ReplacementsWindowController: NSObject, NSWindowDelegate, NSTableVi
             text.translatesAutoresizingMaskIntoConstraints = false
             text.target = self
             text.action = #selector(cellEdited(_:))
+            // Save on ANY edit completion (Enter, Tab, focus loss) — not just Enter
+            text.cell?.sendsActionOnEndEditing = true
             cell.addSubview(text)
             cell.textField = text
             NSLayoutConstraint.activate([
@@ -275,6 +277,8 @@ public class ReplacementsWindowController: NSObject, NSWindowDelegate, NSTableVi
 
     // MARK: - NSWindowDelegate
     public func windowWillClose(_ notification: Notification) {
+        // Force-commit any in-progress edit (resigns first responder → triggers cellEdited)
+        window?.makeFirstResponder(nil)
         saveToConfig()
         window = nil
     }
