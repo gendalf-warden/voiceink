@@ -66,7 +66,7 @@ public struct Config: Codable {
         ollamaModel = try container.decode(String.self, forKey: .ollamaModel)
         ollamaEndpoint = try container.decode(String.self, forKey: .ollamaEndpoint)
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? true
+        logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? false
         punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? (Config.systemRAMGB > 8)
         filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? false
         replacements = try container.decodeIfPresent([String: String].self, forKey: .replacements) ?? [:]
@@ -96,7 +96,7 @@ public struct Config: Codable {
         ollamaModel: "qwen2.5:3b",
         ollamaEndpoint: "http://localhost:11434",
         launchAtLogin: false,
-        logTranscriptions: true,
+        logTranscriptions: false,
         punctuationEnabled: systemRAMGB > 8,
         filePunctuationEnabled: false,
         replacements: [:]
@@ -184,8 +184,9 @@ public struct Config: Codable {
             }
         }
 
-        // Detect model (bundle first)
+        // Detect model (Application Support first, then bundle, then dev paths)
         let modelPaths = [
+            ModelManager.modelsDir.appendingPathComponent("ggml-large-v3-turbo-q5_0.bin").path as String?,
             resourcePath.map { $0 + "/models/ggml-large-v3-turbo-q5_0.bin" },
             fm.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/models/ggml-large-v3-turbo-q5_0.bin").path,
@@ -211,8 +212,9 @@ public struct Config: Codable {
             }
         }
 
-        // Detect qwen model (bundle first, then Ollama blobs)
+        // Detect qwen model (Application Support first, then bundle)
         let llamaModelPaths = [
+            ModelManager.modelsDir.appendingPathComponent("qwen2.5-3b.gguf").path as String?,
             resourcePath.map { $0 + "/models/qwen2.5-3b.gguf" },
         ].compactMap { $0 }
         for path in llamaModelPaths {

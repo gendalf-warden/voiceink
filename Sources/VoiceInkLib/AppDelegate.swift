@@ -16,6 +16,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var serverAvailable = false
     private var fileTranscriptionManager: FileTranscriptionManager?
     private var firstRunWindow: FirstRunWindowController?
+    private var downloadWindow: ModelDownloadWindowController?
     private var history: [(date: Date, text: String)] = []
     private let maxHistory = 10
     private var recordingStartTime: Date?
@@ -46,12 +47,36 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             firstRunWindow = FirstRunWindowController()
             firstRunWindow?.show { [weak self] in
                 self?.firstRunWindow = nil
-                self?.startApp()
+                self?.checkModelsAndStart()
             }
             return
         }
 
-        startApp()
+        checkModelsAndStart()
+    }
+
+    /// Check if required ML models are present. If any are missing, show download window.
+    /// Once models are ready (or already present), proceed to startApp().
+    private func checkModelsAndStart() {
+        let missing = ModelManager.missingModels()
+        if missing.isEmpty {
+            startApp()
+            return
+        }
+
+        log("Missing \(missing.count) model(s) — showing download window", tag: "Models")
+        downloadWindow = ModelDownloadWindowController()
+        downloadWindow?.show(models: missing) { [weak self] success in
+            self?.downloadWindow = nil
+            if success {
+                // Re-detect config so model paths point to Application Support
+                self?.config = Config.load()
+                self?.startApp()
+            } else {
+                log("Model download cancelled or failed — exiting", tag: "Models")
+                NSApplication.shared.terminate(nil)
+            }
+        }
     }
 
     private func startApp() {

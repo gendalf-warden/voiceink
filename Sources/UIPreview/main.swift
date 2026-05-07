@@ -5,7 +5,19 @@ import VoiceInkLib
 // Run: swift run UIPreview [window]
 //   window = "replacements" (default) | "settings" | "result" | "firstrun"
 //
+// Force a UI language with VOICEINK_LANG env var:
+//   VOICEINK_LANG=ru swift run UIPreview settings
+//   VOICEINK_LANG=en swift run UIPreview settings
+//
 // Uses an isolated config in /tmp so production config in ~/.config/voiceink is untouched.
+
+// Force-set AppleLanguages BEFORE any localized lookup happens.
+// This must be at the top of main.swift so Bundle has not cached strings yet.
+if let lang = ProcessInfo.processInfo.environment["VOICEINK_LANG"], !lang.isEmpty {
+    UserDefaults.standard.set([lang], forKey: "AppleLanguages")
+    UserDefaults.standard.synchronize()
+    print("[UIPreview] Forced language: \(lang)")
+}
 
 let args = CommandLine.arguments
 let windowName = args.count > 1 ? args[1].lowercased() : "replacements"
@@ -41,6 +53,7 @@ app.setActivationPolicy(.regular)
 class PreviewDelegate: NSObject, NSApplicationDelegate {
     var replacementsWC: ReplacementsWindowController?
     var settingsWC: SettingsWindowController?
+    var downloadWC: ModelDownloadWindowController?
 
     let windowName: String
     let config: Config
@@ -69,9 +82,17 @@ class PreviewDelegate: NSObject, NSApplicationDelegate {
             }
             settingsWC?.showWindow()
 
+        case "download":
+            downloadWC = ModelDownloadWindowController()
+            // Show with all models as "missing" for visual testing
+            downloadWC?.show(models: ModelManager.assets) { success in
+                print("[UIPreview] download completed: \(success)")
+                NSApp.terminate(nil)
+            }
+
         default:
             print("Unknown window: \(windowName)")
-            print("Available: replacements, settings")
+            print("Available: replacements, settings, download")
             NSApp.terminate(nil)
             return
         }
