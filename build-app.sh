@@ -364,10 +364,12 @@ if [ "$MODE" = "release" ]; then
         # Also create/update symlink without version for convenience
         ln -sf "$DMG_NAME" "${SCRIPT_DIR}/${DMG_LATEST}"
 
-        # Step 9: Notarize the DMG (required for distribution outside App Store)
+        # Step 9: Notarize (required for distribution outside App Store)
+        # Order: submit DMG → Apple notarizes the .app inside → staple .app →
+        # rebuild DMG with stapled .app → sign & staple DMG
         echo ""
-        echo "=== Notarizing DMG ==="
-        echo "[notary] Signing DMG..."
+        echo "=== Notarizing ==="
+        echo "[notary] Signing DMG for submission..."
         codesign --force --sign "$DEVELOPER_ID" --timestamp "$DMG_PATH"
 
         echo "[notary] Submitting to Apple notary service (this can take 1-5 minutes)..."
@@ -376,9 +378,44 @@ if [ "$MODE" = "release" ]; then
             --wait 2>&1 | tee /tmp/voiceink-notary.log; then
             STATUS=$(grep -E "^\s*status:" /tmp/voiceink-notary.log | tail -1 | awk '{print $2}')
             if [ "$STATUS" = "Accepted" ]; then
-                echo "[notary] Stapling notarization ticket to DMG..."
-                xcrun stapler staple "$DMG_PATH"
-                echo "[notary] OK — DMG notarized and stapled"
+                echo "[notary] Stapling .app..."
+                xcrun stapler staple "$FINAL_BUNDLE"
+
+                echo "[notary] Rebuilding DMG with stapled .app..."
+                rm -f "$DMG_PATH" "$DMG_TMP"
+                "$CREATE_DMG" \
+                    --volname "${APP_NAME}" \
+                    --window-pos 200 120 \
+                    --window-size 600 400 \
+                    --icon-size 128 \
+                    --icon "${APP_NAME}.app" 150 185 \
+                    --app-drop-link 450 185 \
+                    "${BG_ARGS[@]}" \
+                    --no-internet-enable \
+                    "$DMG_TMP" \
+                    "$FINAL_BUNDLE" \
+                    2>&1 | grep -v "^$"
+                cp "$DMG_TMP" "$DMG_PATH"
+                rm -f "$DMG_TMP"
+
+                echo "[notary] Signing final DMG..."
+                codesign --force --sign "$DEVELOPER_ID" --timestamp "$DMG_PATH"
+
+                echo "[notary] Submitting final DMG to notary service..."
+                if xcrun notarytool submit "$DMG_PATH" \
+                    --keychain-profile voiceink-notary \
+                    --wait 2>&1 | tee /tmp/voiceink-notary2.log; then
+                    STATUS2=$(grep -E "^\s*status:" /tmp/voiceink-notary2.log | tail -1 | awk '{print $2}')
+                    if [ "$STATUS2" = "Accepted" ]; then
+                        xcrun stapler staple "$DMG_PATH"
+                        echo "[notary] OK — .app and DMG both notarized + stapled"
+                    else
+                        echo "[notary] WARNING — final DMG notarization status: $STATUS2"
+                        echo "[notary] .app is stapled, DMG is not — should still work"
+                    fi
+                else
+                    echo "[notary] WARNING — final DMG notarization failed, but .app is stapled"
+                fi
             else
                 echo "[notary] FAILED — status: $STATUS"
                 SUBMISSION_ID=$(grep -E "^\s*id:" /tmp/voiceink-notary.log | head -1 | awk '{print $2}')
