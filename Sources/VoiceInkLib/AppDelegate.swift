@@ -47,7 +47,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             firstRunWindow = FirstRunWindowController()
             firstRunWindow?.show { [weak self] in
                 self?.firstRunWindow = nil
-                self?.checkModelsAndStart()
+                // Brief delay to let the first-run window fully close
+                // before showing the next window (model download or splash).
+                // Without this, LSUIElement apps may lose focus and the next
+                // window appears behind other windows.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self?.checkModelsAndStart()
+                }
             }
             return
         }
@@ -58,13 +64,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     /// Check if required ML models are present. If any are missing, show download window.
     /// Once models are ready (or already present), proceed to startApp().
     private func checkModelsAndStart() {
+        log("checkModelsAndStart() called", tag: "Models")
         let missing = ModelManager.missingModels()
+        log("Missing models: \(missing.count) (\(missing.map(\.id).joined(separator: ", ")))", tag: "Models")
         if missing.isEmpty {
             startApp()
             return
         }
 
-        log("Missing \(missing.count) model(s) — showing download window", tag: "Models")
+        log("Showing download window for \(missing.count) model(s)", tag: "Models")
         downloadWindow = ModelDownloadWindowController()
         downloadWindow?.show(models: missing) { [weak self] success in
             self?.downloadWindow = nil
@@ -508,3 +516,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 // stripCombiningAccents() moved to StringExtensions.swift
+
+// MARK: - Hybrid Dock management
+
+extension NSApplication {
+    /// Temporarily show the Dock icon so windows get proper focus and Cmd+Tab.
+    /// Call before showing any window. Safe to call multiple times.
+    func showDock() {
+        if activationPolicy() != .regular {
+            setActivationPolicy(.regular)
+        }
+        activate(ignoringOtherApps: true)
+    }
+
+    /// Hide the Dock icon when no visible windows remain.
+    /// Call after closing a window. Uses a brief delay to let the close animation finish.
+    func hideDockIfNoWindows() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self = self else { return }
+            let hasWindows = self.windows.contains { $0.isVisible }
+            if !hasWindows {
+                self.setActivationPolicy(.accessory)
+            }
+        }
+    }
+}

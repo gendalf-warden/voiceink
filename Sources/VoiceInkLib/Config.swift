@@ -67,8 +67,8 @@ public struct Config: Codable {
         ollamaEndpoint = try container.decode(String.self, forKey: .ollamaEndpoint)
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? false
-        punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? (Config.systemRAMGB > 8)
-        filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? false
+        punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? false
+        filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? (Config.systemRAMGB > 8)
         replacements = try container.decodeIfPresent([String: String].self, forKey: .replacements) ?? [:]
     }
 
@@ -97,8 +97,8 @@ public struct Config: Codable {
         ollamaEndpoint: "http://localhost:11434",
         launchAtLogin: false,
         logTranscriptions: false,
-        punctuationEnabled: systemRAMGB > 8,
-        filePunctuationEnabled: false,
+        punctuationEnabled: false,
+        filePunctuationEnabled: systemRAMGB > 8,
         replacements: [:]
     )
 

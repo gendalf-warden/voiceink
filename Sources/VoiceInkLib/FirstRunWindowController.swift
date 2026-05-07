@@ -139,6 +139,7 @@ public class FirstRunWindowController {
 
         self.window = window
         updateStatus()
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
 
         // Poll for permission changes (user grants in System Settings)
@@ -171,6 +172,8 @@ public class FirstRunWindowController {
         let win = self.window
         self.window = nil
         win?.close()
+        // Don't call hideDockIfNoWindows() here — the next window
+        // (model download or splash) will show immediately after.
         onComplete?()
     }
 

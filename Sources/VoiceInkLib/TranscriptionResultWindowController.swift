@@ -23,8 +23,8 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
 
     public func show() {
         if let existing = window, existing.isVisible {
+            NSApp.showDock()
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -114,8 +114,8 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         contentView.addSubview(copyButton)
 
         self.window = window
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     public func setStatus(_ text: String) {
@@ -365,5 +365,6 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
     // MARK: - NSWindowDelegate
     public func windowWillClose(_ notification: Notification) {
         window = nil
+        NSApp.hideDockIfNoWindows()
     }
 }

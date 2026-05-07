@@ -12,9 +12,9 @@
 /* Model download window */
 "download.title"                       = "Downloading Models";
 "download.subtitle"                    = "VoiceInk needs ML models for speech recognition (~3.5 GB)";
-"download.whisper_model"               = "Whisper ASR model";
-"download.coreml_model"                = "CoreML accelerator";
-"download.llm_model"                   = "Punctuation LLM";
+"download.whisper_model"               = "Speech recognition";
+"download.coreml_model"                = "GPU acceleration";
+"download.llm_model"                   = "Smart punctuation";
 "download.cancel"                      = "Cancel";
 "download.retry"                       = "Retry";
 "download.complete"                    = "Models ready!";

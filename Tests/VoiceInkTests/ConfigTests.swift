@@ -73,10 +73,10 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.launchAtLogin, false)
         // Privacy by default: transcription text NOT logged unless user opts in
         XCTAssertEqual(config.logTranscriptions, false)
-        // punctuationEnabled defaults based on RAM — just check it decodes without crash
-        _ = config.punctuationEnabled
-        // filePunctuationEnabled defaults to false
-        XCTAssertEqual(config.filePunctuationEnabled, false)
+        // punctuationEnabled defaults to false (off for dictation)
+        XCTAssertEqual(config.punctuationEnabled, false)
+        // filePunctuationEnabled defaults to RAM > 8 GB
+        XCTAssertEqual(config.filePunctuationEnabled, Config.systemRAMGB > 8)
         // replacements defaults to empty dict
         XCTAssertEqual(config.replacements, [:])
     }

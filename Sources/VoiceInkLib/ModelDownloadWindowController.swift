@@ -148,8 +148,8 @@ public class ModelDownloadWindowController {
         content.addSubview(retryButton)
 
         self.window = window
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Download orchestration
@@ -275,6 +275,7 @@ public class ModelDownloadWindowController {
     private func close() {
         window?.close()
         window = nil
+        NSApp.hideDockIfNoWindows()
     }
 }
 

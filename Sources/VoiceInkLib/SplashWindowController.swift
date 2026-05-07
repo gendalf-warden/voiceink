@@ -74,6 +74,7 @@ public class SplashWindowController {
         }
 
         self.window = window
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -103,9 +104,11 @@ public class SplashWindowController {
         self.window = nil
         if Thread.isMainThread {
             win?.close()
+            NSApp.hideDockIfNoWindows()
         } else {
             DispatchQueue.main.async {
                 win?.close()
+                NSApp.hideDockIfNoWindows()
             }
         }
     }

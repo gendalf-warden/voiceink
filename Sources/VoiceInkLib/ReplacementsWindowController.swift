@@ -64,8 +64,8 @@ public class ReplacementsWindowController: NSObject, NSWindowDelegate, NSTableVi
 
     public func showWindow() {
         if let existing = window, existing.isVisible {
+            NSApp.showDock()
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -167,8 +167,8 @@ public class ReplacementsWindowController: NSObject, NSWindowDelegate, NSTableVi
         contentView.addSubview(closeButton)
 
         self.window = window
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func addRow() {
@@ -281,5 +281,6 @@ public class ReplacementsWindowController: NSObject, NSWindowDelegate, NSTableVi
         window?.makeFirstResponder(nil)
         saveToConfig()
         window = nil
+        NSApp.hideDockIfNoWindows()
     }
 }

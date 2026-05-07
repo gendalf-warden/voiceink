@@ -19,8 +19,8 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
 
     public func showWindow() {
         if let existing = window, existing.isVisible {
+            NSApp.showDock()
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -37,7 +37,6 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.level = .floating
 
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         window.contentView = contentView
@@ -112,8 +111,8 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         contentView.addSubview(hint)
 
         self.window = window
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func logTranscriptionsToggled() {
@@ -157,7 +156,7 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
     public func windowWillClose(_ notification: Notification) {
-        // Nothing special needed
+        NSApp.hideDockIfNoWindows()
     }
 }
 

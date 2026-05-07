@@ -12,9 +12,9 @@
 /* Model download window */
 "download.title"                       = "Загрузка моделей";
 "download.subtitle"                    = "VoiceInk загрузит модели для распознавания речи (~3.5 ГБ)";
-"download.whisper_model"               = "Модель Whisper ASR";
-"download.coreml_model"                = "CoreML ускоритель";
-"download.llm_model"                   = "LLM пунктуации";
+"download.whisper_model"               = "Распознавание речи";
+"download.coreml_model"                = "GPU ускорение";
+"download.llm_model"                   = "Умная пунктуация";
 "download.cancel"                      = "Отмена";
 "download.retry"                       = "Повторить";
 "download.complete"                    = "Модели готовы!";
