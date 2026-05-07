@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "VoiceInk",
+    defaultLocalization: "en",
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "voiceink", targets: ["VoiceInk"]),
@@ -27,6 +28,9 @@ let package = Package(
         ),
         .target(
             name: "VoiceInkLib",
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),

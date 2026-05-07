@@ -71,7 +71,8 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.llamaServerPath, "")
         XCTAssertEqual(config.llamaModelPath, "")
         XCTAssertEqual(config.launchAtLogin, false)
-        XCTAssertEqual(config.logTranscriptions, true)
+        // Privacy by default: transcription text NOT logged unless user opts in
+        XCTAssertEqual(config.logTranscriptions, false)
         // punctuationEnabled defaults based on RAM — just check it decodes without crash
         _ = config.punctuationEnabled
         // filePunctuationEnabled defaults to false

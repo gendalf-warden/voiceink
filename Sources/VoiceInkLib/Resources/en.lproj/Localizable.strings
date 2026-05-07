@@ -1,0 +1,21 @@
+/* Settings window */
+"settings.title"                       = "VoiceInk Settings";
+"settings.hotkey"                      = "Hotkey:";
+"settings.launch_at_login"             = "Launch at Login";
+"settings.log_transcription"           = "Log transcription text";
+"settings.smart_punctuation"           = "Smart Punctuation";
+"settings.smart_punctuation.ram_hint"  = "Requires 16+ GB RAM (you have: %lld GB)";
+"settings.smart_punctuation.dictation" = "For dictation";
+"settings.smart_punctuation.files"     = "For file transcription";
+"settings.hotkey_hint"                 = "Click the hotkey field, then press a key combo (e.g. ⌃1) or Fn alone.";
+
+/* Model download window */
+"download.title"                       = "Downloading Models";
+"download.subtitle"                    = "VoiceInk needs ML models for speech recognition (~3.5 GB)";
+"download.whisper_model"               = "Whisper ASR model";
+"download.coreml_model"                = "CoreML accelerator";
+"download.llm_model"                   = "Punctuation LLM";
+"download.cancel"                      = "Cancel";
+"download.retry"                       = "Retry";
+"download.complete"                    = "Models ready!";
+"download.disk_space"                  = "Not enough disk space. Need %@, have %@.";

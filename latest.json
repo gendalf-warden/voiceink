@@ -1,0 +1,12 @@
+{
+    "version": "0.2b",
+    "tag": "v0.2b",
+    "released": "2026-05-07T08:13:25Z",
+    "min_macos": "13.0",
+    "dmg": {
+        "url": "https://github.com/gendalf-warden/voiceink/releases/download/v0.2b/VoiceInk-0.2b.dmg",
+        "size": 10002239,
+        "sha256": "a0b5996828d0b218f6aa83630f11b72f725c40c893bd1b0abcd97ea122ec1c38"
+    },
+    "release_notes_url": "https://github.com/gendalf-warden/voiceink/releases/tag/v0.2b"
+}

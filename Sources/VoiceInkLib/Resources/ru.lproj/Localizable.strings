@@ -1,0 +1,21 @@
+/* Settings window */
+"settings.title"                       = "Настройки VoiceInk";
+"settings.hotkey"                      = "Горячая клавиша:";
+"settings.launch_at_login"             = "Запускать при входе";
+"settings.log_transcription"           = "Логировать текст диктовки";
+"settings.smart_punctuation"           = "Умная пунктуация";
+"settings.smart_punctuation.ram_hint"  = "Требует 16+ ГБ RAM (у вас: %lld ГБ)";
+"settings.smart_punctuation.dictation" = "При диктовке";
+"settings.smart_punctuation.files"     = "При транскрипции файлов";
+"settings.hotkey_hint"                 = "Кликни на поле, затем нажми сочетание клавиш (напр. ⌃1) или Fn.";
+
+/* Model download window */
+"download.title"                       = "Загрузка моделей";
+"download.subtitle"                    = "VoiceInk загрузит модели для распознавания речи (~3.5 ГБ)";
+"download.whisper_model"               = "Модель Whisper ASR";
+"download.coreml_model"                = "CoreML ускоритель";
+"download.llm_model"                   = "LLM пунктуации";
+"download.cancel"                      = "Отмена";
+"download.retry"                       = "Повторить";
+"download.complete"                    = "Модели готовы!";
+"download.disk_space"                  = "Недостаточно места на диске. Нужно %@, доступно %@.";
