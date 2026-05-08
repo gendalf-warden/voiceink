@@ -65,6 +65,18 @@ mkdir -p "${RESOURCES}/lib-llama"
 echo "[3/7] Copying binary..."
 cp "$BINARY" "${CONTENTS}/MacOS/voiceink"
 
+# Copy SwiftPM-generated resource bundle (Localizable.strings for en/ru, Info.plist).
+# StringLocalizer.findResourceBundle() locates this in Contents/Resources/ at runtime.
+# We can't put it at the .app root (where SwiftPM's Bundle.module expects) because
+# extra dirs at the .app root break codesigning.
+SPM_BUNDLE="/tmp/voiceink-build-scratch/arm64-apple-macosx/release/VoiceInk_VoiceInkLib.bundle"
+if [ ! -d "$SPM_BUNDLE" ]; then
+    echo "ERROR: SwiftPM resource bundle not found at: $SPM_BUNDLE"
+    exit 1
+fi
+mkdir -p "${RESOURCES}"
+cp -R "$SPM_BUNDLE" "${RESOURCES}/"
+
 # Step 4: Copy resources
 echo "[4/7] Copying resources..."
 
