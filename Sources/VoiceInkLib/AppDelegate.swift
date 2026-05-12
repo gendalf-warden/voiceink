@@ -122,7 +122,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
             // Build the new config WITHOUT mutating self.config — applyConfig
             // needs the old config still in place to detect the transition.
-            var newConfig = self.config
+            var newConfig: Config = self.config
             if forFile {
                 newConfig.fileMode = mode
             } else {

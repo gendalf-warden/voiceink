@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4b] - 2026-05-12
+
 ### Added
 - **Post-processing modes** (P5.7, P5.8): replaces the single punctuation toggle
   with three selectable modes applied to dictation and file transcription
@@ -35,6 +37,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Unknown mode raw values (e.g. `"grammar"` / `"list"` from intermediate dev
   builds) are now silently ignored on decode rather than rejecting the whole
   config.
+
+### Fixed
+- Switching dictation mode from menu bar (e.g. `Off → Translate`) now actually
+  loads the LLM. Previous behaviour: config updated and saved, but no LLM was
+  started, so the next dictation silently fell back to raw Whisper output.
 
 ## [0.3b] - 2026-05-07
 
