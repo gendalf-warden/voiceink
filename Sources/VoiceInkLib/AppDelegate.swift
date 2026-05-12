@@ -120,14 +120,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBar.onModeChange = { [weak self] forFile, mode in
             guard let self = self else { return }
+            // Build the new config WITHOUT mutating self.config — applyConfig
+            // needs the old config still in place to detect the transition.
+            var newConfig = self.config
             if forFile {
-                self.config.fileMode = mode
+                newConfig.fileMode = mode
             } else {
-                self.config.dictationMode = mode
+                newConfig.dictationMode = mode
             }
-            self.config.save()
-            self.applyConfig(self.config)
+            newConfig.save()
             log("Mode changed (\(forFile ? "file" : "dictation")): \(mode.rawValue)", tag: "StatusBar")
+            self.applyConfig(newConfig)
         }
 
         audioRecorder = AudioRecorder()
@@ -473,6 +476,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkeyChanged = newConfig.hotkeyKeyCode != config.hotkeyKeyCode
             || newConfig.hotkeyModifiers != config.hotkeyModifiers
         let launchChanged = newConfig.launchAtLogin != config.launchAtLogin
+        // Dictation needs LLM warm at all times (sub-second latency). Detect transitions
+        // so toggling mode in the menu bar actually loads/unloads the LLM. File mode
+        // uses lazy load via onLLMNeeded callback — no action here.
+        let dictationNeededLLMBefore = config.dictationMode != .off
+        let dictationNeedsLLMNow = newConfig.dictationMode != .off
 
         config = newConfig
 
@@ -483,6 +491,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         if hotkeyChanged {
             hotkeyManager.updateHotkey(keyCode: config.hotkeyKeyCode, modifiers: config.hotkeyModifiers)
             log("Hotkey reloaded: \(config.hotkeyDescription)")
+        }
+
+        // LLM lifecycle on dictation mode transition
+        if dictationNeedsLLMNow && !dictationNeededLLMBefore {
+            // Off → On: load eagerly so the next push-to-talk has it warm
+            let alreadyRunning = llamaClient?.isServerRunning == true || ollamaClient != nil
+            if !alreadyRunning {
+                log("Dictation mode enabled — eagerly loading LLM", tag: "Config")
+                llmEagerlyLoaded = true
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.startLLMSync()
+                }
+            } else {
+                llmEagerlyLoaded = true
+            }
+        } else if !dictationNeedsLLMNow && dictationNeededLLMBefore {
+            // On → Off: stop holding LLM open for dictation. File mode may still want
+            // it lazily on demand, so we don't unload here — releaseLazyLLM handles
+            // that after each file pipeline finishes. Just drop the eager flag.
+            llmEagerlyLoaded = false
+            log("Dictation mode disabled — LLM stays loaded for current session", tag: "Config")
         }
 
         // Update LaunchAgent
