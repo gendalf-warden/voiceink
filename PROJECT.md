@@ -309,6 +309,8 @@ open VoiceInk.app        # запуск
    - *Осталось*: C. Batch & drag-drop — multiple file selection, drag на иконку, очередь с прогрессом
    - *Осталось*: авто-сохранение рядом с исходником (video.mp4 → video.srt)
 11. **Эталонные WAV для smoke-тестов**: записать короткие WAV-фикстуры (RU/EN/mixed, цифры, англицизмы) и автоматизировать `scripts/smoke-test-modes.sh` — гонит whisper-server + LLM против всех 5 режимов, проверяет инварианты из `TESTS.md §6.7`
+12. ~~**Testable lifecycle transitions**~~ ✅ — `ConfigChangeEffects` чистая структура, описывает side effects переходов конфига. AppDelegate.applyConfig ужался до диспатча 4 флагов. 14 transition-тестов (off→mode, mode→off, swap, LLM-already-running guard, hotkey, launch-at-login, translate-target no-op). Свежий 0.4b-dev баг теперь покрыт unit-тестом.
+13. **Full AppCoordinator + LLMSupervisor protocol**: вынести из AppDelegate dictation/file pipelines в чистый класс с инжекцией зависимостей (`LLMSupervisor`, `AudioRecording`, `TranscriptionService`, `TextInsertion`). Открывает дорогу для headless integration-тестов на pipeline. ~3-4 часа, делать когда захочется покрыть recording→transcribe→LLM→insert end-to-end
 
 ### Фаза 6 — Продвинутые фичи
 10. **Голосовые команды**: "новый абзац", "точка", "удали последнее слово"
