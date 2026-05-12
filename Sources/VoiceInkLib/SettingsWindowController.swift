@@ -6,11 +6,16 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
     private var hotkeyField: HotkeyRecorderField!
     private var launchAtLoginCheckbox: NSButton!
     private var logTranscriptionsCheckbox: NSButton!
-    private var punctuationCheckbox: NSButton!
-    private var filePunctuationCheckbox: NSButton!
+    private var dictationModePopup: NSPopUpButton!
+    private var fileModePopup: NSPopUpButton!
+    private var translateTargetPopup: NSPopUpButton!
+    private var translateTargetLabel: NSTextField!
 
     private var config: Config
     public var onConfigChanged: ((Config) -> Void)?
+
+    /// Modes shown in popups, in display order.
+    private let modeOrder: [PostProcessingMode] = [.off, .smart, .translate]
 
     public init(config: Config) {
         self.config = config
@@ -25,7 +30,7 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         }
 
         let width: CGFloat = 500
-        let height: CGFloat = 320
+        let height: CGFloat = 380
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -78,30 +83,65 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         logTranscriptionsCheckbox.state = config.logTranscriptions ? .on : .off
         contentView.addSubview(logTranscriptionsCheckbox)
 
-        // --- Smart punctuation block ---
+        // --- Post-processing block ---
         let ramGB = Config.systemRAMGB
-        let sectionTitle = NSTextField(labelWithString: "settings.smart_punctuation".localized)
+        let sectionTitle = NSTextField(labelWithString: "settings.post_processing".localized)
         sectionTitle.frame = NSRect(x: checkboxLeft, y: height - 150, width: checkboxWidth, height: 18)
         sectionTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         contentView.addSubview(sectionTitle)
 
-        let sectionHint = NSTextField(labelWithString: "settings.smart_punctuation.ram_hint".localized(Int64(ramGB)))
+        let sectionHint = NSTextField(labelWithString: "settings.post_processing.ram_hint".localized(Int64(ramGB)))
         sectionHint.frame = NSRect(x: checkboxLeft, y: height - 170, width: checkboxWidth, height: 16)
         sectionHint.font = NSFont.systemFont(ofSize: 11)
         sectionHint.textColor = .secondaryLabelColor
         contentView.addSubview(sectionHint)
 
         let subItemLeft = checkboxLeft + 16  // indent to show grouping
+        let subLabelWidth: CGFloat = 100
+        let popupWidth: CGFloat = checkboxWidth - 16 - subLabelWidth - 8
 
-        punctuationCheckbox = NSButton(checkboxWithTitle: "settings.smart_punctuation.dictation".localized, target: self, action: #selector(punctuationToggled))
-        punctuationCheckbox.frame = NSRect(x: subItemLeft, y: height - 198, width: checkboxWidth - 16, height: 22)
-        punctuationCheckbox.state = config.punctuationEnabled ? .on : .off
-        contentView.addSubview(punctuationCheckbox)
+        // Dictation mode popup
+        let dictationLabel = NSTextField(labelWithString: "settings.post_processing.dictation".localized)
+        dictationLabel.frame = NSRect(x: subItemLeft, y: height - 199, width: subLabelWidth, height: 18)
+        dictationLabel.font = NSFont.systemFont(ofSize: 12)
+        contentView.addSubview(dictationLabel)
 
-        filePunctuationCheckbox = NSButton(checkboxWithTitle: "settings.smart_punctuation.files".localized, target: self, action: #selector(filePunctuationToggled))
-        filePunctuationCheckbox.frame = NSRect(x: subItemLeft, y: height - 224, width: checkboxWidth - 16, height: 22)
-        filePunctuationCheckbox.state = config.filePunctuationEnabled ? .on : .off
-        contentView.addSubview(filePunctuationCheckbox)
+        dictationModePopup = NSPopUpButton(frame: NSRect(x: subItemLeft + subLabelWidth + 8, y: height - 204, width: popupWidth, height: 26), pullsDown: false)
+        populateModePopup(dictationModePopup, selected: config.dictationMode)
+        dictationModePopup.target = self
+        dictationModePopup.action = #selector(dictationModeChanged)
+        contentView.addSubview(dictationModePopup)
+
+        // File mode popup
+        let fileLabel = NSTextField(labelWithString: "settings.post_processing.files".localized)
+        fileLabel.frame = NSRect(x: subItemLeft, y: height - 231, width: subLabelWidth, height: 18)
+        fileLabel.font = NSFont.systemFont(ofSize: 12)
+        contentView.addSubview(fileLabel)
+
+        fileModePopup = NSPopUpButton(frame: NSRect(x: subItemLeft + subLabelWidth + 8, y: height - 236, width: popupWidth, height: 26), pullsDown: false)
+        populateModePopup(fileModePopup, selected: config.fileMode)
+        fileModePopup.target = self
+        fileModePopup.action = #selector(fileModeChanged)
+        contentView.addSubview(fileModePopup)
+
+        // Translate target picker (visible only when at least one mode == .translate)
+        translateTargetLabel = NSTextField(labelWithString: "settings.translate_target".localized)
+        translateTargetLabel.frame = NSRect(x: subItemLeft, y: height - 263, width: subLabelWidth, height: 18)
+        translateTargetLabel.font = NSFont.systemFont(ofSize: 12)
+        contentView.addSubview(translateTargetLabel)
+
+        translateTargetPopup = NSPopUpButton(frame: NSRect(x: subItemLeft + subLabelWidth + 8, y: height - 268, width: popupWidth, height: 26), pullsDown: false)
+        for lang in translationTargetLanguages {
+            translateTargetPopup.addItem(withTitle: lang.name)
+            translateTargetPopup.item(at: translateTargetPopup.numberOfItems - 1)?.representedObject = lang.code
+        }
+        if let idx = translationTargetLanguages.firstIndex(where: { $0.code == config.translateTarget }) {
+            translateTargetPopup.selectItem(at: idx)
+        }
+        translateTargetPopup.target = self
+        translateTargetPopup.action = #selector(translateTargetChanged)
+        contentView.addSubview(translateTargetPopup)
+        updateTranslateTargetVisibility()
 
         // --- Hint ---
         let hint = NSTextField(wrappingLabelWithString: "settings.hotkey_hint".localized)
@@ -122,18 +162,49 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         log("Log transcriptions: \(config.logTranscriptions)")
     }
 
-    @objc private func punctuationToggled() {
-        config.punctuationEnabled = (punctuationCheckbox.state == .on)
+    @objc private func dictationModeChanged() {
+        let idx = dictationModePopup.indexOfSelectedItem
+        guard idx >= 0, idx < modeOrder.count else { return }
+        config.dictationMode = modeOrder[idx]
         config.save()
         onConfigChanged?(config)
-        log("Dictation punctuation: \(config.punctuationEnabled)")
+        updateTranslateTargetVisibility()
+        log("Dictation mode: \(config.dictationMode.rawValue)")
     }
 
-    @objc private func filePunctuationToggled() {
-        config.filePunctuationEnabled = (filePunctuationCheckbox.state == .on)
+    @objc private func fileModeChanged() {
+        let idx = fileModePopup.indexOfSelectedItem
+        guard idx >= 0, idx < modeOrder.count else { return }
+        config.fileMode = modeOrder[idx]
         config.save()
         onConfigChanged?(config)
-        log("File punctuation: \(config.filePunctuationEnabled)")
+        updateTranslateTargetVisibility()
+        log("File mode: \(config.fileMode.rawValue)")
+    }
+
+    @objc private func translateTargetChanged() {
+        let idx = translateTargetPopup.indexOfSelectedItem
+        guard idx >= 0, idx < translationTargetLanguages.count else { return }
+        config.translateTarget = translationTargetLanguages[idx].code
+        config.save()
+        onConfigChanged?(config)
+        log("Translate target: \(config.translateTarget)")
+    }
+
+    private func populateModePopup(_ popup: NSPopUpButton, selected: PostProcessingMode) {
+        popup.removeAllItems()
+        for mode in modeOrder {
+            popup.addItem(withTitle: mode.localizedName)
+        }
+        if let idx = modeOrder.firstIndex(of: selected) {
+            popup.selectItem(at: idx)
+        }
+    }
+
+    private func updateTranslateTargetVisibility() {
+        let needed = config.dictationMode == .translate || config.fileMode == .translate
+        translateTargetLabel?.isHidden = !needed
+        translateTargetPopup?.isHidden = !needed
     }
 
     @objc private func launchAtLoginToggled() {
@@ -150,8 +221,17 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         hotkeyField?.updateDisplay()
         launchAtLoginCheckbox?.state = config.launchAtLogin ? .on : .off
         logTranscriptionsCheckbox?.state = config.logTranscriptions ? .on : .off
-        punctuationCheckbox?.state = config.punctuationEnabled ? .on : .off
-        filePunctuationCheckbox?.state = config.filePunctuationEnabled ? .on : .off
+        if let popup = dictationModePopup, let idx = modeOrder.firstIndex(of: config.dictationMode) {
+            popup.selectItem(at: idx)
+        }
+        if let popup = fileModePopup, let idx = modeOrder.firstIndex(of: config.fileMode) {
+            popup.selectItem(at: idx)
+        }
+        if let popup = translateTargetPopup,
+           let idx = translationTargetLanguages.firstIndex(where: { $0.code == config.translateTarget }) {
+            popup.selectItem(at: idx)
+        }
+        updateTranslateTargetVisibility()
     }
 
     // MARK: - NSWindowDelegate
