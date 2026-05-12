@@ -10,26 +10,17 @@ final class PostProcessingModeTests: XCTestCase {
         XCTAssertNil(PostProcessingMode.off.systemPrompt(translateTarget: "en"))
     }
 
-    func testPunctuationPromptMentionsPunctuation() {
-        let prompt = PostProcessingMode.punctuation.systemPrompt() ?? ""
-        XCTAssertTrue(prompt.lowercased().contains("punctuation"), "punctuation prompt should mention punctuation")
-        XCTAssertTrue(prompt.contains("Do NOT add, remove, or change any words"),
-                      "punctuation prompt must forbid word changes")
-    }
-
-    func testGrammarPromptMentionsGrammar() {
-        let prompt = PostProcessingMode.grammar.systemPrompt() ?? ""
-        XCTAssertTrue(prompt.lowercased().contains("grammar"), "grammar prompt should mention grammar")
+    func testSmartPromptCoversPunctuationGrammarAndLists() {
+        let prompt = PostProcessingMode.smart.systemPrompt() ?? ""
+        let lower = prompt.lowercased()
+        XCTAssertTrue(lower.contains("punctuation"), ".smart must mention punctuation")
+        XCTAssertTrue(lower.contains("grammar"), ".smart must mention grammar")
+        XCTAssertTrue(lower.contains("bullet") || lower.contains("list"),
+                      ".smart must mention bullet/list reformatting")
         XCTAssertTrue(prompt.contains("DO NOT translate"),
-                      "grammar prompt must explicitly forbid translation")
-    }
-
-    func testListPromptMentionsBullets() {
-        let prompt = PostProcessingMode.list.systemPrompt() ?? ""
-        XCTAssertTrue(prompt.lowercased().contains("bullet") || prompt.contains("- "),
-                      "list prompt should mention bullets")
-        XCTAssertTrue(prompt.contains("DO NOT translate"),
-                      "list prompt must explicitly forbid translation")
+                      ".smart prompt must forbid translation explicitly")
+        XCTAssertTrue(lower.contains("digit") || lower.contains("number"),
+                      ".smart must instruct digits stay as digits")
     }
 
     func testTranslatePromptIncludesTargetLanguageName() {
@@ -46,9 +37,9 @@ final class PostProcessingModeTests: XCTestCase {
 
     func testTranslatePromptKnownLanguageCodes() {
         let cases: [(String, String)] = [
-            ("en", "English"), ("ru", "Russian"), ("es", "Spanish"),
-            ("fr", "French"), ("de", "German"), ("zh", "Chinese"),
-            ("ja", "Japanese"), ("ar", "Arabic")
+            ("en", "English"), ("ru", "Russian"), ("hy", "Armenian"),
+            ("es", "Spanish"), ("fr", "French"), ("de", "German"),
+            ("zh", "Chinese"), ("ja", "Japanese"), ("ar", "Arabic")
         ]
         for (code, name) in cases {
             let prompt = PostProcessingMode.translate.systemPrompt(translateTarget: code) ?? ""
@@ -58,10 +49,17 @@ final class PostProcessingModeTests: XCTestCase {
     }
 
     func testTranslatePromptUnknownCodeFallsBackToCode() {
-        // Unknown ISO code should still produce a prompt — degraded but functional
         let prompt = PostProcessingMode.translate.systemPrompt(translateTarget: "xyz") ?? ""
         XCTAssertTrue(prompt.contains("xyz"),
                       "unknown code should appear verbatim in prompt")
+    }
+
+    // MARK: - Translation target catalog
+
+    func testTranslationTargetsIncludeArmenianExcludeUkrainian() {
+        let codes = Set(translationTargetLanguages.map(\.code))
+        XCTAssertTrue(codes.contains("hy"), "Armenian must be available as a target")
+        XCTAssertFalse(codes.contains("uk"), "Ukrainian was removed; should not appear")
     }
 
     // MARK: - Codable
@@ -74,17 +72,17 @@ final class PostProcessingModeTests: XCTestCase {
         }
     }
 
+    /// Raw values are persisted to disk and must NOT change without a migration.
+    /// `.smart`'s raw value stays `"punctuation"` so v0.3b configs with the
+    /// legacy `punctuationEnabled` boolean still map to a usable mode.
     func testRawValueStability() {
-        // These raw values are persisted to disk and must NOT change without a migration
         XCTAssertEqual(PostProcessingMode.off.rawValue, "off")
-        XCTAssertEqual(PostProcessingMode.punctuation.rawValue, "punctuation")
-        XCTAssertEqual(PostProcessingMode.grammar.rawValue, "grammar")
-        XCTAssertEqual(PostProcessingMode.list.rawValue, "list")
+        XCTAssertEqual(PostProcessingMode.smart.rawValue, "punctuation")
         XCTAssertEqual(PostProcessingMode.translate.rawValue, "translate")
     }
 
     func testAllCasesCount() {
-        // Catches accidental enum changes; bump when intentionally adding/removing modes
-        XCTAssertEqual(PostProcessingMode.allCases.count, 5)
+        // Bump only when intentionally adding/removing modes
+        XCTAssertEqual(PostProcessingMode.allCases.count, 3)
     }
 }

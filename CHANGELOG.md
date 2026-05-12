@@ -6,31 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- **Post-processing modes** (P5.7): replaces the single punctuation toggle with a
-  selectable LLM mode applied to dictation and file transcription independently.
-  Modes: `off` (raw), `punctuation` (default), `grammar` (fix cases/agreements),
-  `list` (reformat as bullets), `translate` (target language picker).
-- **Translation mode** (P5.8): translate dictation or files into 14 languages
-  (en, ru, es, fr, de, it, pt, pl, uk, tr, zh, ja, ko, ar). Hallucination guards
-  (3× length, script preservation) are disabled for this mode since the script
-  change is intentional.
+- **Post-processing modes** (P5.7, P5.8): replaces the single punctuation toggle
+  with three selectable modes applied to dictation and file transcription
+  independently — `Off` (raw Whisper), `Smart` (combined punctuation + grammar +
+  bullet-list detection in one LLM pass), and `Translate` (target language).
+- **Translation mode**: translate into 13 languages (en, ru, hy, es, fr, de, it,
+  pt, pl, tr, zh, ja, ko, ar). Hallucination guards (3× length, script
+  preservation) are disabled for this mode since the script change is intentional.
 - **Menu bar mode submenu**: status bar shows `Dictation: X` and `File: Y` with
-  submenus that include all 5 modes and checkmark the current selection.
+  submenus that include all 3 modes and checkmark the current selection.
 - **Settings UI**: two `NSPopUpButton`s for dictation/file modes; translate-target
-  picker appears only when at least one mode is `.translate`.
+  picker appears only when at least one mode is `Translate`.
 - **PostProcessingPipeline** helper + `LLMProcessor` protocol — extracted
   testable post-processing contract; `LlamaClient` and `OllamaClient` conform.
-- **Smoke tests** (P5.9): 28 new tests covering mode→prompt mapping, Codable
+- **Smoke tests** (P5.9): unit tests covering mode→prompt mapping, Codable
   round-trip, legacy `punctuationEnabled` migration, length/script guards, fail-safe
-  on LLM error. Manual mode regression checklist (17 cases) added to TESTS.md.
+  on LLM error, tolerance of unknown raw values. Manual mode regression checklist
+  (19 cases) added to TESTS.md §6.7.
 
 ### Changed
 - **Config schema**: `punctuationEnabled` / `filePunctuationEnabled` (booleans)
   replaced with `dictationMode` / `fileMode` (`PostProcessingMode` enum) plus
   `translateTarget` (ISO 639-1 code). Old v0.3b configs decode transparently:
-  `true → .punctuation`, `false → .off`.
+  `true → .smart`, `false → .off`. The `.smart` case persists with raw value
+  `"punctuation"` to preserve this mapping.
 - LLM client API: `postProcess(text:)` → `process(text:systemPrompt:)`.
 - `FileTranscriptionManager.punctuationEnabled` → `mode` + `translateTarget`.
+- Unknown mode raw values (e.g. `"grammar"` / `"list"` from intermediate dev
+  builds) are now silently ignored on decode rather than rejecting the whole
+  config.
 
 ## [0.3b] - 2026-05-07
 

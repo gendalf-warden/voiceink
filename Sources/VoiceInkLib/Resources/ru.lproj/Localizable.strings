@@ -12,9 +12,7 @@
 
 /* Post-processing modes */
 "mode.off"                             = "Без обработки";
-"mode.punctuation"                     = "Пунктуация";
-"mode.grammar"                         = "Грамматика";
-"mode.list"                            = "Список";
+"mode.punctuation"                     = "Умная обработка (пунктуация + грамматика)";
 "mode.translate"                       = "Перевод";
 
 /* Model download window */

@@ -30,7 +30,7 @@ public class StatusBarController {
     public var onModeChange: ((_ forFile: Bool, _ mode: PostProcessingMode) -> Void)?
 
     /// Modes in display order for the submenu.
-    private let modeOrder: [PostProcessingMode] = [.off, .punctuation, .grammar, .list, .translate]
+    private let modeOrder: [PostProcessingMode] = [.off, .smart, .translate]
 
     public var state: AppState = .idle {
         didSet {

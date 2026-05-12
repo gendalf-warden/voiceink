@@ -24,7 +24,7 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
     func testNilProcessorPassesThrough() async {
         let result = await PostProcessingPipeline.apply(
             rawText: "anything",
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: nil
         )
@@ -35,7 +35,7 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
         let mock = MockLLMProcessor()
         let result = await PostProcessingPipeline.apply(
             rawText: "",
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock
         )
@@ -45,39 +45,18 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
 
     // MARK: - Each mode sends its own system prompt
 
-    func testPunctuationSendsPunctuationPrompt() async {
+    func testSmartSendsCombinedPrompt() async {
         let mock = MockLLMProcessor(response: "Hello, world.")
         _ = await PostProcessingPipeline.apply(
             rawText: "hello world",
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock
         )
         XCTAssertEqual(mock.callCount, 1)
-        XCTAssertTrue(mock.lastSystemPrompt?.lowercased().contains("punctuation") ?? false)
-    }
-
-    func testGrammarSendsGrammarPrompt() async {
-        let mock = MockLLMProcessor(response: "Corrected text.")
-        _ = await PostProcessingPipeline.apply(
-            rawText: "moi knigi novie",
-            mode: .grammar,
-            translateTarget: "en",
-            processor: mock
-        )
-        XCTAssertTrue(mock.lastSystemPrompt?.lowercased().contains("grammar") ?? false)
-    }
-
-    func testListSendsListPrompt() async {
-        let mock = MockLLMProcessor(response: "- a\n- b")
-        _ = await PostProcessingPipeline.apply(
-            rawText: "a and b",
-            mode: .list,
-            translateTarget: "en",
-            processor: mock
-        )
-        XCTAssertTrue((mock.lastSystemPrompt?.lowercased().contains("list") ?? false)
-                      || (mock.lastSystemPrompt?.lowercased().contains("bullet") ?? false))
+        let prompt = mock.lastSystemPrompt?.lowercased() ?? ""
+        XCTAssertTrue(prompt.contains("punctuation"), ".smart prompt mentions punctuation")
+        XCTAssertTrue(prompt.contains("grammar"), ".smart prompt mentions grammar")
     }
 
     func testTranslatePromptIncludesTargetLanguage() async {
@@ -91,6 +70,18 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
         XCTAssertTrue(mock.lastSystemPrompt?.contains("Russian") ?? false)
     }
 
+    func testTranslateToArmenianMentionsArmenian() async {
+        let mock = MockLLMProcessor(response: "Բարև աշխարհ:")
+        _ = await PostProcessingPipeline.apply(
+            rawText: "Hello world",
+            mode: .translate,
+            translateTarget: "hy",
+            processor: mock
+        )
+        XCTAssertTrue(mock.lastSystemPrompt?.contains("Armenian") ?? false,
+                      "translate(hy) prompt must mention Armenian")
+    }
+
     // MARK: - Length guard
 
     func testLengthGuardTripsFor3xOverflow() async {
@@ -98,7 +89,7 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
         let raw = "short input"
         let result = await PostProcessingPipeline.apply(
             rawText: raw,
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock
         )
@@ -106,12 +97,11 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
     }
 
     func testLengthGuardAllowsModerateExpansion() async {
-        // Adding punctuation can grow text slightly — guard should not trip
         let raw = "hello world how are you"
         let mock = MockLLMProcessor(response: "Hello, world. How are you?")
         let result = await PostProcessingPipeline.apply(
             rawText: raw,
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock
         )
@@ -119,7 +109,6 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
     }
 
     func testLengthGuardSkippedForTranslate() async {
-        // Translation may legitimately produce much longer or shorter text
         let raw = "Hi"
         let longTranslation = "Здравствуйте, как у вас дела сегодня?"
         let mock = MockLLMProcessor(response: longTranslation)
@@ -135,13 +124,11 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
     // MARK: - Script guard
 
     func testScriptGuardCatchesUnwantedTranslation() async {
-        // Russian raw → LLM erroneously translates to English. With expected="ru",
-        // pipeline should reject and return raw.
         let raw = "Привет, мир"
         let mock = MockLLMProcessor(response: "Hello, world")
         let result = await PostProcessingPipeline.apply(
             rawText: raw,
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock,
             expectedScriptLanguage: "ru"
@@ -150,7 +137,6 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
     }
 
     func testScriptGuardSkippedForTranslateMode() async {
-        // In translate mode, script SHOULD change — guard must be disabled
         let raw = "Привет, мир"
         let mock = MockLLMProcessor(response: "Hello, world")
         let result = await PostProcessingPipeline.apply(
@@ -168,7 +154,7 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
         let mock = MockLLMProcessor(response: "Привет, мир.")
         let result = await PostProcessingPipeline.apply(
             rawText: raw,
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock,
             expectedScriptLanguage: "ru"
@@ -183,31 +169,25 @@ final class PostProcessingPipelineSmokeTests: XCTestCase {
         let mock = MockLLMProcessor(error: MockError.simulated)
         let result = await PostProcessingPipeline.apply(
             rawText: raw,
-            mode: .punctuation,
+            mode: .smart,
             translateTarget: "en",
             processor: mock
         )
         XCTAssertEqual(result, raw, "LLM errors must not lose the user's dictation")
     }
 
-    // MARK: - Reference-text content rules (smoke checks the prompt contract)
+    // MARK: - Prompt content rules (digits, language, no-translate)
 
-    /// Prompts in non-translate modes MUST explicitly preserve digits, English words,
-    /// and (where applicable) original language. These are the contract checks the
-    /// user listed: "цифры, спецсимволы, англицизмы". They live here so prompt drift
-    /// is caught even without reference WAVs.
-    func testNonTranslatePromptsPreserveDigitsAndLanguage() {
-        for mode in [PostProcessingMode.punctuation, .grammar, .list] {
-            let prompt = mode.systemPrompt() ?? ""
-            XCTAssertTrue(
-                prompt.lowercased().contains("digit") || prompt.lowercased().contains("number"),
-                "\(mode.rawValue) prompt must instruct to keep numbers as digits"
-            )
-            if mode != .punctuation {
-                XCTAssertTrue(prompt.contains("DO NOT translate"),
-                              "\(mode.rawValue) prompt must forbid translation explicitly")
-            }
-        }
+    /// The combined .smart prompt MUST instruct the LLM to preserve digits and
+    /// the source language. Catches prompt drift even without reference WAVs.
+    func testSmartPromptContractFlags() {
+        let prompt = PostProcessingMode.smart.systemPrompt() ?? ""
+        XCTAssertTrue(
+            prompt.lowercased().contains("digit") || prompt.lowercased().contains("number"),
+            ".smart prompt must instruct to keep numbers as digits"
+        )
+        XCTAssertTrue(prompt.contains("DO NOT translate"),
+                      ".smart prompt must forbid translation explicitly")
     }
 }
 

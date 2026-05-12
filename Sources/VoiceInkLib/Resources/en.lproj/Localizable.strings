@@ -12,9 +12,7 @@
 
 /* Post-processing modes */
 "mode.off"                             = "Off (raw)";
-"mode.punctuation"                     = "Punctuation";
-"mode.grammar"                         = "Grammar";
-"mode.list"                            = "Bullet list";
+"mode.punctuation"                     = "Smart (punctuation + grammar)";
 "mode.translate"                       = "Translate";
 
 /* Model download window */

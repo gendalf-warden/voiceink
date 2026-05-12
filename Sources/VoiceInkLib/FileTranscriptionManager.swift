@@ -20,7 +20,7 @@ public class FileTranscriptionManager {
     /// Called after pipeline finishes. Should release LLM if it was lazy-loaded.
     public var onLLMRelease: (() async -> Void)?
     /// Post-processing mode applied to each chunk's transcription
-    public var mode: PostProcessingMode = .punctuation
+    public var mode: PostProcessingMode = .smart
     /// Target language for .translate mode (ISO 639-1 code)
     public var translateTarget: String = "en"
     /// User replacements applied after Whisper, before LLM

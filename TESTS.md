@@ -91,7 +91,8 @@
 
 ### 6.7. Режимы пост-обработки (mode regression)
 
-Каждый режим протестировать на эталонной фразе. Эталоны должны содержать:
+Три режима: **Off**, **Smart** (пунктуация + грамматика + списки), **Translate**.
+Эталоны для проверки должны содержать:
 - цифры («у меня 5 котов и 3 собаки»),
 - англицизмы внутри русского («открой API в Chrome»),
 - спецсимволы / пунктуацию («запятые точки и тире»).
@@ -99,22 +100,24 @@
 | # | Режим | Эталон (надиктовать) | Ожидание |
 |---|-------|----------------------|----------|
 | 6.7.1 | Off | «у меня 5 котов и 3 собаки» | Raw whisper-вывод без LLM, цифры цифрами |
-| 6.7.2 | Punctuation (RU) | «у меня 5 котов и 3 собаки также есть попугай» | «У меня 5 котов и 3 собаки. Также есть попугай.» — слова не меняются, цифры цифрами |
-| 6.7.3 | Punctuation (EN) | «i have 5 cats and 3 dogs» | «I have 5 cats and 3 dogs.» — слова не меняются |
-| 6.7.4 | Punctuation (mixed) | «открой API в Chrome и проверь endpoint» | API/Chrome/endpoint сохранены, добавлена пунктуация |
-| 6.7.5 | Grammar (RU) | «мой книги новые и интересный» | «Мои книги новые и интересные.» — падежи/согласования исправлены, без перевода |
-| 6.7.6 | List (RU) | «купить хлеб молоко и яйца также не забыть про сыр» | Маркированный список «- хлеб, - молоко, - яйца, - сыр» |
-| 6.7.7 | List (EN) | «first buy bread second milk and also eggs» | «- bread, - milk, - eggs» |
+| 6.7.2 | Smart (RU, прозa) | «у меня 5 котов и 3 собаки также есть попугай» | «У меня 5 котов и 3 собаки. Также есть попугай.» — слова не меняются, цифры цифрами |
+| 6.7.3 | Smart (EN) | «i have 5 cats and 3 dogs» | «I have 5 cats and 3 dogs.» |
+| 6.7.4 | Smart (mixed) | «открой API в Chrome и проверь endpoint» | API/Chrome/endpoint сохранены, добавлена пунктуация |
+| 6.7.5 | Smart (RU, грамматика) | «мой книги новые и интересный» | «Мои книги новые и интересные.» — падежи/согласования исправлены, без перевода |
+| 6.7.6 | Smart (RU, список) | «купить хлеб молоко и яйца также не забыть про сыр» | Маркированный список «- хлеб, - молоко, - яйца, - сыр» |
+| 6.7.7 | Smart (EN, список) | «first buy bread second milk and also eggs» | «- bread, - milk, - eggs» |
 | 6.7.8 | Translate RU→EN | «привет мир как дела» | «Hello world, how are you?» (или близкий вариант), цифры сохранены |
-| 6.7.9 | Translate EN→RU | «hello world how are you» | «Привет, мир, как ты?» (или близкий вариант) |
-| 6.7.10 | Translate уже на target | надиктовать на английском с режимом translate→en | Текст не сломан, может быть лишь подправлена пунктуация |
-| 6.7.11 | Hallucination guard (length) | надиктовать «привет» в режиме grammar; если LLM выдаст пояснение — должен сработать 3× guard | В логе `output too long`, вставляется raw |
-| 6.7.12 | Script guard (punctuation на RU) | надиктовать русский текст; если LLM ответит на английском — должен сработать script guard | В логе `LLM changed script — using raw`, вставляется русский raw |
-| 6.7.13 | Translate не триггерит script guard | translate RU→EN на русской фразе | Английский перевод вставляется, в логе **нет** `LLM changed script` |
-| 6.7.14 | Меню статусбара показывает текущий режим | Под Whisper-моделью два пункта «Dictation: X» и «File: Y» с подменю | Кликнуть в menu bar |
-| 6.7.15 | Смена режима из меню | Подменю показывает чекмарк на текущем, выбор сохраняется в config.json | Изменить, перезапустить — должно остаться |
-| 6.7.16 | Файл-транскрипция в режиме translate | Файл с русской речью + fileMode=translate, target=en → SRT/TXT на английском | Прогнать файл в `Transcribe File…` |
-| 6.7.17 | Backward compat config | Старый config 0.3b с `"punctuationEnabled": true` → `dictationMode=punctuation` после загрузки | Подложить старый JSON, проверить лог `dictation: punctuation` |
+| 6.7.9 | Translate EN→RU | «hello world how are you» | «Привет, мир, как ты?» |
+| 6.7.10 | Translate RU→HY (Armenian) | «привет мир» с target=hy | Перевод на армянский: «Բարև աշխարհ» или близкий вариант |
+| 6.7.11 | Translate уже на target | надиктовать на английском с режимом translate→en | Текст не сломан, может быть лишь подправлена пунктуация |
+| 6.7.12 | Hallucination guard (length) | надиктовать «привет» в Smart; если LLM выдаст длинное пояснение — 3× guard | В логе `output too long`, вставляется raw |
+| 6.7.13 | Script guard (Smart на RU) | если LLM ответит на английском на русский ввод | В логе `LLM changed script — using raw`, вставляется русский raw |
+| 6.7.14 | Translate не триггерит script guard | translate RU→EN на русской фразе | Английский перевод вставляется, в логе **нет** `LLM changed script` |
+| 6.7.15 | Меню статусбара показывает текущий режим | Под LLM два пункта «Dictation: X» и «File: Y» с подменю на 3 опции | Кликнуть в menu bar |
+| 6.7.16 | Смена режима из меню | Подменю показывает чекмарк на текущем, выбор сохраняется в config.json | Изменить, перезапустить — должно остаться |
+| 6.7.17 | Файл-транскрипция в режиме translate | Файл с русской речью + fileMode=translate, target=en → SRT/TXT на английском | Прогнать файл в `Transcribe File…` |
+| 6.7.18 | Backward compat config v0.3b | Старый config с `"punctuationEnabled": true` → `dictationMode=.smart` | Подложить старый JSON, проверить лог `dictation: punctuation` |
+| 6.7.19 | Backward compat config v0.4b-dev | Старый dev-config с `"dictationMode": "grammar"` или `"list"` → fail-safe (decode error → defaults) | Не должно крашить приложение |
 
 ---
 

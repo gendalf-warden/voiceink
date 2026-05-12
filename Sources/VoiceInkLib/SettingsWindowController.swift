@@ -14,8 +14,8 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
     private var config: Config
     public var onConfigChanged: ((Config) -> Void)?
 
-    /// Modes shown in popups, in display order. Translate is last (visually separated).
-    private let modeOrder: [PostProcessingMode] = [.off, .punctuation, .grammar, .list, .translate]
+    /// Modes shown in popups, in display order.
+    private let modeOrder: [PostProcessingMode] = [.off, .smart, .translate]
 
     public init(config: Config) {
         self.config = config

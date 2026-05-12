@@ -86,20 +86,24 @@ public struct Config: Codable {
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? false
 
-        // Decode modes — prefer new keys, fall back to legacy booleans for migration
-        if let mode = try container.decodeIfPresent(PostProcessingMode.self, forKey: .dictationMode) {
+        // Decode modes — prefer new keys, fall back to legacy booleans for migration.
+        // Tolerant of unknown raw values (e.g. "grammar"/"list" from early 0.4b-dev
+        // builds): treat unknown mode strings as if the key were absent.
+        if let raw = try container.decodeIfPresent(String.self, forKey: .dictationMode),
+           let mode = PostProcessingMode(rawValue: raw) {
             dictationMode = mode
         } else if let legacy = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) {
-            dictationMode = legacy ? .punctuation : .off
+            dictationMode = legacy ? .smart : .off
         } else {
             dictationMode = .off
         }
-        if let mode = try container.decodeIfPresent(PostProcessingMode.self, forKey: .fileMode) {
+        if let raw = try container.decodeIfPresent(String.self, forKey: .fileMode),
+           let mode = PostProcessingMode(rawValue: raw) {
             fileMode = mode
         } else if let legacy = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) {
-            fileMode = legacy ? .punctuation : .off
+            fileMode = legacy ? .smart : .off
         } else {
-            fileMode = Config.systemRAMGB > 8 ? .punctuation : .off
+            fileMode = Config.systemRAMGB > 8 ? .smart : .off
         }
         translateTarget = try container.decodeIfPresent(String.self, forKey: .translateTarget) ?? "en"
 
@@ -153,7 +157,7 @@ public struct Config: Codable {
         launchAtLogin: false,
         logTranscriptions: false,
         dictationMode: .off,
-        fileMode: systemRAMGB > 8 ? .punctuation : .off,
+        fileMode: systemRAMGB > 8 ? .smart : .off,
         translateTarget: "en",
         replacements: [:]
     )

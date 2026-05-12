@@ -20,7 +20,7 @@ final class ConfigTests: XCTestCase {
             ollamaEndpoint: "http://localhost:11434",
             launchAtLogin: true,
             logTranscriptions: false,
-            dictationMode: .grammar,
+            dictationMode: .smart,
             fileMode: .translate,
             translateTarget: "ru",
             replacements: ["Демале": "ДеМоле", "API": "АПИ"]
@@ -75,7 +75,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.logTranscriptions, false)
         // No legacy keys, no new keys — defaults
         XCTAssertEqual(config.dictationMode, .off)
-        XCTAssertEqual(config.fileMode, Config.systemRAMGB > 8 ? .punctuation : .off)
+        XCTAssertEqual(config.fileMode, Config.systemRAMGB > 8 ? .smart : .off)
         XCTAssertEqual(config.translateTarget, "en")
         XCTAssertEqual(config.replacements, [:])
     }
@@ -100,7 +100,7 @@ final class ConfigTests: XCTestCase {
 
         let config = try JSONDecoder().decode(Config.self, from: json)
 
-        XCTAssertEqual(config.dictationMode, .punctuation, "legacy punctuationEnabled=true should become .punctuation")
+        XCTAssertEqual(config.dictationMode, .smart, "legacy punctuationEnabled=true should become .smart")
         XCTAssertEqual(config.fileMode, .off, "legacy filePunctuationEnabled=false should become .off")
     }
 
@@ -118,15 +118,41 @@ final class ConfigTests: XCTestCase {
             "ollamaEndpoint": "http://localhost:11434",
             "punctuationEnabled": false,
             "filePunctuationEnabled": false,
-            "dictationMode": "grammar",
-            "fileMode": "list"
+            "dictationMode": "punctuation",
+            "fileMode": "translate"
         }
         """.data(using: .utf8)!
 
         let config = try JSONDecoder().decode(Config.self, from: json)
 
-        XCTAssertEqual(config.dictationMode, .grammar)
-        XCTAssertEqual(config.fileMode, .list)
+        // "punctuation" raw value maps to .smart (legacy raw kept for v0.3b compat)
+        XCTAssertEqual(config.dictationMode, .smart)
+        XCTAssertEqual(config.fileMode, .translate)
+    }
+
+    /// Early 0.4b-dev builds shipped `grammar` / `list` raw values. Configs from
+    /// those builds must not crash decode; unknown values fall back to defaults.
+    func testDecodeUnknownModeRawFallsBackGracefully() throws {
+        let json = """
+        {
+            "whisperCliPath": "/usr/bin/whisper",
+            "whisperModelPath": "/models/model.bin",
+            "language": "auto",
+            "hotkeyKeyCode": 63,
+            "hotkeyModifiers": [],
+            "ollamaEnabled": true,
+            "ollamaModel": "qwen2.5:3b",
+            "ollamaEndpoint": "http://localhost:11434",
+            "dictationMode": "grammar",
+            "fileMode": "list"
+        }
+        """.data(using: .utf8)!
+
+        // Must not throw — falls back to defaults rather than rejecting the whole config
+        let config = try JSONDecoder().decode(Config.self, from: json)
+        XCTAssertEqual(config.dictationMode, .off, "unknown raw value should fall back to default")
+        XCTAssertEqual(config.fileMode, Config.systemRAMGB > 8 ? .smart : .off,
+                       "unknown raw value should fall back to default")
     }
 
     // MARK: - llamaAvailable
@@ -142,7 +168,7 @@ final class ConfigTests: XCTestCase {
             llamaServerPath: llamaServerPath, llamaModelPath: llamaModelPath,
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
             launchAtLogin: false, logTranscriptions: true,
-            dictationMode: .punctuation, fileMode: .off
+            dictationMode: .smart, fileMode: .off
         )
     }
 

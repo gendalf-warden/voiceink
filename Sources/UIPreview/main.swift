@@ -37,7 +37,7 @@ var sampleConfig = Config(
     ollamaEndpoint: "http://localhost:11434",
     launchAtLogin: false,
     logTranscriptions: true,
-    dictationMode: .punctuation,
+    dictationMode: .smart,
     fileMode: .off,
     translateTarget: "en",
     replacements: [
