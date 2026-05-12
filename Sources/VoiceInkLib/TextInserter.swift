@@ -8,6 +8,11 @@ public class TextInserter {
 
     public init() {}
 
+    /// Pasteboard transient marker — well-known type that asks clipboard managers
+    /// (Maccy, Paste, Raycast etc.) NOT to record this clipboard write to history.
+    /// Spec: http://nspasteboard.org
+    private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
     public func insert(text: String) {
         let insertedText = text + " "
         lastInsertedLength = insertedText.count
@@ -16,9 +21,12 @@ public class TextInserter {
         // Save current clipboard
         let previousContents = pasteboard.string(forType: .string)
 
-        // Set our text (trailing space so next dictation/typing continues naturally)
+        // Set our text (trailing space so next dictation/typing continues naturally).
+        // The transient marker tells clipboard managers to ignore this write —
+        // dictated text shouldn't end up in their history (privacy).
         pasteboard.clearContents()
         pasteboard.setString(text + " ", forType: .string)
+        pasteboard.setString("", forType: TextInserter.transientType)
 
         // Simulate Cmd+V
         simulatePaste()

@@ -3,6 +3,43 @@
 All notable changes to VoiceInk are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+## [0.3b] - 2026-05-07
+
+### Added
+- **Model download on first launch**: models (~3.5 GB) downloaded from GitHub
+  Releases instead of bundled in .app — DMG shrunk from 3.4 GB to 9.5 MB
+- **ModelManager**: sequential download with URLSession resume, SHA256 verification,
+  CoreML zip/unzip, disk space check
+- **ModelDownloadWindowController**: per-file progress bars, speed indicator,
+  cancel/retry, localized (en/ru)
+- **Hybrid Dock management**: Dock icon appears temporarily when any window is open
+  (proper focus, Cmd+Tab), disappears when all windows close. Fixes invisible
+  windows on LSUIElement apps
+- **Replacements dictionary** (P5.4): user-defined word replacements applied after
+  Whisper, before LLM. Native macOS table editor with live search field, click-to-edit
+  cells, ± buttons. Menu: Replacements… (Cmd+R)
+- **LLM lazy lifecycle**: when dictation punctuation is OFF but file punctuation is
+  ON, LLM is loaded only during file transcription and unloaded after — saves ~2 GB
+  idle RAM
+- **Localization (en/ru)**: Settings window, download window with functional model
+  names ("Speech recognition", "GPU acceleration", "Smart punctuation")
+- **UIPreview executable target** for fast UI iteration: `./scripts/preview-ui.sh`
+
+### Changed
+- **Punctuation defaults**: dictation OFF, file transcription ON (RAM > 8 GB) —
+  matches real-world usage where file transcription benefits more from LLM
+- Settings window no longer floats above other apps
+- Dev build version label is now `{VERSION}+dev` instead of just `dev`
+- LLM startup logic refactored: `startLLMSync()` / `ensureLLMReady()` /
+  `releaseLazyLLM()` helpers in AppDelegate
+
+### Fixed
+- Download window invisible after first-run wizard on other Macs (LSUIElement
+  focus loss after Accessibility system dialog)
+- LLM was not started when only file transcription needed it
+
 ## [0.2b] - 2026-04-17
 
 ### Added

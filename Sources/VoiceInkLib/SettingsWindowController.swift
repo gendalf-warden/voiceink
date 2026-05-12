@@ -19,13 +19,13 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
 
     public func showWindow() {
         if let existing = window, existing.isVisible {
+            NSApp.showDock()
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
         let width: CGFloat = 500
-        let height: CGFloat = 280
+        let height: CGFloat = 320
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -33,21 +33,21 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "VoiceInk Settings"
+        window.title = "settings.title".localized
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.level = .floating
 
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         window.contentView = contentView
 
-        let checkboxLeft: CGFloat = 110
+        let labelWidth: CGFloat = 140  // wide enough for Russian "Горячая клавиша:"
+        let checkboxLeft: CGFloat = 20 + labelWidth + 10  // = 170
         let checkboxWidth: CGFloat = width - checkboxLeft - 20
 
         // --- Hotkey row ---
-        let hotkeyLabel = NSTextField(labelWithString: "Hotkey:")
-        hotkeyLabel.frame = NSRect(x: 20, y: height - 50, width: 80, height: 22)
+        let hotkeyLabel = NSTextField(labelWithString: "settings.hotkey".localized)
+        hotkeyLabel.frame = NSRect(x: 20, y: height - 50, width: labelWidth, height: 22)
         hotkeyLabel.alignment = .right
         contentView.addSubview(hotkeyLabel)
 
@@ -67,39 +67,52 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         contentView.addSubview(hotkeyField)
 
         // --- Launch at Login row ---
-        launchAtLoginCheckbox = NSButton(checkboxWithTitle: "Launch at Login", target: self, action: #selector(launchAtLoginToggled))
+        launchAtLoginCheckbox = NSButton(checkboxWithTitle: "settings.launch_at_login".localized, target: self, action: #selector(launchAtLoginToggled))
         launchAtLoginCheckbox.frame = NSRect(x: checkboxLeft, y: height - 90, width: checkboxWidth, height: 22)
         launchAtLoginCheckbox.state = config.launchAtLogin ? .on : .off
         contentView.addSubview(launchAtLoginCheckbox)
 
         // --- Log transcriptions row ---
-        logTranscriptionsCheckbox = NSButton(checkboxWithTitle: "Log transcription text", target: self, action: #selector(logTranscriptionsToggled))
+        logTranscriptionsCheckbox = NSButton(checkboxWithTitle: "settings.log_transcription".localized, target: self, action: #selector(logTranscriptionsToggled))
         logTranscriptionsCheckbox.frame = NSRect(x: checkboxLeft, y: height - 120, width: checkboxWidth, height: 22)
         logTranscriptionsCheckbox.state = config.logTranscriptions ? .on : .off
         contentView.addSubview(logTranscriptionsCheckbox)
 
-        // --- Smart punctuation: dictation ---
-        punctuationCheckbox = NSButton(checkboxWithTitle: "Умная пунктуация при диктовке", target: self, action: #selector(punctuationToggled))
-        punctuationCheckbox.frame = NSRect(x: checkboxLeft, y: height - 150, width: checkboxWidth, height: 22)
+        // --- Smart punctuation block ---
+        let ramGB = Config.systemRAMGB
+        let sectionTitle = NSTextField(labelWithString: "settings.smart_punctuation".localized)
+        sectionTitle.frame = NSRect(x: checkboxLeft, y: height - 150, width: checkboxWidth, height: 18)
+        sectionTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        contentView.addSubview(sectionTitle)
+
+        let sectionHint = NSTextField(labelWithString: "settings.smart_punctuation.ram_hint".localized(Int64(ramGB)))
+        sectionHint.frame = NSRect(x: checkboxLeft, y: height - 170, width: checkboxWidth, height: 16)
+        sectionHint.font = NSFont.systemFont(ofSize: 11)
+        sectionHint.textColor = .secondaryLabelColor
+        contentView.addSubview(sectionHint)
+
+        let subItemLeft = checkboxLeft + 16  // indent to show grouping
+
+        punctuationCheckbox = NSButton(checkboxWithTitle: "settings.smart_punctuation.dictation".localized, target: self, action: #selector(punctuationToggled))
+        punctuationCheckbox.frame = NSRect(x: subItemLeft, y: height - 198, width: checkboxWidth - 16, height: 22)
         punctuationCheckbox.state = config.punctuationEnabled ? .on : .off
         contentView.addSubview(punctuationCheckbox)
 
-        // --- Smart punctuation: file transcription ---
-        filePunctuationCheckbox = NSButton(checkboxWithTitle: "Умная пунктуация при транскрипции файлов", target: self, action: #selector(filePunctuationToggled))
-        filePunctuationCheckbox.frame = NSRect(x: checkboxLeft, y: height - 180, width: checkboxWidth, height: 22)
+        filePunctuationCheckbox = NSButton(checkboxWithTitle: "settings.smart_punctuation.files".localized, target: self, action: #selector(filePunctuationToggled))
+        filePunctuationCheckbox.frame = NSRect(x: subItemLeft, y: height - 224, width: checkboxWidth - 16, height: 22)
         filePunctuationCheckbox.state = config.filePunctuationEnabled ? .on : .off
         contentView.addSubview(filePunctuationCheckbox)
 
         // --- Hint ---
-        let hint = NSTextField(wrappingLabelWithString: "Click the hotkey field, then press a key combo (e.g. \u{2303}1) or Fn alone.")
+        let hint = NSTextField(wrappingLabelWithString: "settings.hotkey_hint".localized)
         hint.frame = NSRect(x: 20, y: 16, width: width - 40, height: 34)
         hint.font = NSFont.systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         contentView.addSubview(hint)
 
         self.window = window
+        NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func logTranscriptionsToggled() {
@@ -143,7 +156,7 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
     public func windowWillClose(_ notification: Notification) {
-        // Nothing special needed
+        NSApp.hideDockIfNoWindows()
     }
 }
 

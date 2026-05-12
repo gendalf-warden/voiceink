@@ -24,6 +24,7 @@ public class StatusBarController {
     public var onOpenLog: (() -> Void)?
     public var onTranscribeFile: (() -> Void)?
     public var onUndoDictation: (() -> Void)?
+    public var onOpenReplacements: (() -> Void)?
 
     public var state: AppState = .idle {
         didSet {
@@ -116,21 +117,26 @@ public class StatusBarController {
         menu.addItem(NSMenuItem.separator())
 
         // Undo last dictation
-        let undoItem = NSMenuItem(title: "Undo Dictation", action: #selector(undoDictationAction), keyEquivalent: "z")
+        let undoItem = NSMenuItem(title: "Undo Dictation", action: #selector(undoDictationAction), keyEquivalent: "")
         undoItem.target = self
         menu.addItem(undoItem)
 
         // Transcribe file
-        let transcribeItem = NSMenuItem(title: "Transcribe File…", action: #selector(transcribeFileAction), keyEquivalent: "t")
+        let transcribeItem = NSMenuItem(title: "Transcribe File…", action: #selector(transcribeFileAction), keyEquivalent: "")
         transcribeItem.target = self
         menu.addItem(transcribeItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // Settings
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: "")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        // Replacements editor
+        let replacementsItem = NSMenuItem(title: "Replacements…", action: #selector(openReplacementsAction), keyEquivalent: "")
+        replacementsItem.target = self
+        menu.addItem(replacementsItem)
 
         // Open Log
         let logItem = NSMenuItem(title: "Open Log…", action: #selector(openLogAction), keyEquivalent: "")
@@ -140,7 +146,7 @@ public class StatusBarController {
         menu.addItem(NSMenuItem.separator())
 
         // Quit
-        let quitItem = NSMenuItem(title: "Quit VoiceInk", action: #selector(quitAction), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit VoiceInk", action: #selector(quitAction), keyEquivalent: "")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -157,6 +163,10 @@ public class StatusBarController {
 
     @objc private func openSettingsAction() {
         onOpenSettings?()
+    }
+
+    @objc private func openReplacementsAction() {
+        onOpenReplacements?()
     }
 
     @objc private func openLogAction() {

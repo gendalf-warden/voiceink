@@ -1,6 +1,8 @@
 .build/
 VoiceInk.app/
 VoiceInk*.dmg
+icon-source.png
+icon-1024.png
 *.wav
 *.mp4
 *.mp3

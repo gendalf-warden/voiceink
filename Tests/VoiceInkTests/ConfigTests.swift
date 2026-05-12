@@ -21,7 +21,8 @@ final class ConfigTests: XCTestCase {
             launchAtLogin: true,
             logTranscriptions: false,
             punctuationEnabled: true,
-            filePunctuationEnabled: true
+            filePunctuationEnabled: true,
+            replacements: ["Демале": "ДеМоле", "API": "АПИ"]
         )
 
         let encoder = JSONEncoder()
@@ -43,6 +44,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(decoded.logTranscriptions, config.logTranscriptions)
         XCTAssertEqual(decoded.punctuationEnabled, config.punctuationEnabled)
         XCTAssertEqual(decoded.filePunctuationEnabled, config.filePunctuationEnabled)
+        XCTAssertEqual(decoded.replacements, config.replacements)
     }
 
     // MARK: - Backward compatibility (missing optional fields)
@@ -69,11 +71,14 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.llamaServerPath, "")
         XCTAssertEqual(config.llamaModelPath, "")
         XCTAssertEqual(config.launchAtLogin, false)
-        XCTAssertEqual(config.logTranscriptions, true)
-        // punctuationEnabled defaults based on RAM — just check it decodes without crash
-        _ = config.punctuationEnabled
-        // filePunctuationEnabled defaults to false
-        XCTAssertEqual(config.filePunctuationEnabled, false)
+        // Privacy by default: transcription text NOT logged unless user opts in
+        XCTAssertEqual(config.logTranscriptions, false)
+        // punctuationEnabled defaults to false (off for dictation)
+        XCTAssertEqual(config.punctuationEnabled, false)
+        // filePunctuationEnabled defaults to RAM > 8 GB
+        XCTAssertEqual(config.filePunctuationEnabled, Config.systemRAMGB > 8)
+        // replacements defaults to empty dict
+        XCTAssertEqual(config.replacements, [:])
     }
 
     // MARK: - llamaAvailable

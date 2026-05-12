@@ -37,12 +37,11 @@ fi
 # Paths to whisper resources
 WHISPER_BUILD="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/whisper.cpp/build"
 WHISPER_SERVER="${WHISPER_BUILD}/bin/whisper-server"
-WHISPER_MODEL="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/models/ggml-large-v3-turbo-q5_0.bin"
+# Models are NOT bundled — downloaded on first launch via ModelManager.
+# See scripts/upload-models.sh to upload models to GitHub Releases.
 
 # Paths to LLM resources
 LLAMA_SERVER="/opt/homebrew/bin/llama-server"
-# qwen2.5:3b GGUF from Ollama blobs
-QWEN_MODEL_BLOB="${HOME}/.ollama/models/blobs/sha256-5ee4f07cdb9beadbbb293e85803c569b01bd37ed059d2715faa7bb405f31caa6"
 
 # Step 1: Build release binary
 echo "[1/7] Building release binary..."
@@ -59,13 +58,24 @@ echo "[2/7] Creating bundle structure..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 mkdir -p "${CONTENTS}/MacOS"
-mkdir -p "${RESOURCES}/models"
 mkdir -p "${RESOURCES}/lib"
 mkdir -p "${RESOURCES}/lib-llama"
 
 # Step 3: Copy binary
 echo "[3/7] Copying binary..."
 cp "$BINARY" "${CONTENTS}/MacOS/voiceink"
+
+# Copy SwiftPM-generated resource bundle (Localizable.strings for en/ru, Info.plist).
+# StringLocalizer.findResourceBundle() locates this in Contents/Resources/ at runtime.
+# We can't put it at the .app root (where SwiftPM's Bundle.module expects) because
+# extra dirs at the .app root break codesigning.
+SPM_BUNDLE="/tmp/voiceink-build-scratch/arm64-apple-macosx/release/VoiceInk_VoiceInkLib.bundle"
+if [ ! -d "$SPM_BUNDLE" ]; then
+    echo "ERROR: SwiftPM resource bundle not found at: $SPM_BUNDLE"
+    exit 1
+fi
+mkdir -p "${RESOURCES}"
+cp -R "$SPM_BUNDLE" "${RESOURCES}/"
 
 # Step 4: Copy resources
 echo "[4/7] Copying resources..."
@@ -111,20 +121,8 @@ for lib in "${RESOURCES}"/lib/*.dylib; do
     install_name_tool -add_rpath @loader_path "${lib}" 2>/dev/null || true
 done
 
-echo "       whisper model (547 MB)..."
-if [ ! -f "$WHISPER_MODEL" ]; then
-    echo "ERROR: Whisper model not found at: $WHISPER_MODEL"
-    exit 1
-fi
-cp "$WHISPER_MODEL" "${RESOURCES}/models/"
-
-echo "       CoreML model (1.2 GB)..."
-COREML_MODEL="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/models/ggml-large-v3-turbo-encoder.mlmodelc"
-if [ -d "$COREML_MODEL" ]; then
-    cp -R "$COREML_MODEL" "${RESOURCES}/models/"
-else
-    echo "WARNING: CoreML model not found, whisper will use CPU-only mode"
-fi
+# Models are NOT bundled — downloaded on first launch via ModelManager.
+# See scripts/upload-models.sh to upload models to GitHub Releases.
 
 echo "       llama-server..."
 if [ ! -f "$LLAMA_SERVER" ]; then
@@ -229,18 +227,18 @@ done
 
 install_name_tool -add_rpath @executable_path/lib-llama "${RESOURCES}/llama-server" 2>/dev/null || true
 
-echo "       qwen2.5-3b model (1.8 GB)..."
-if [ ! -f "$QWEN_MODEL_BLOB" ]; then
-    echo "ERROR: qwen2.5:3b model not found in Ollama blobs"
-    echo "       Install with: ollama pull qwen2.5:3b"
-    exit 1
-fi
-cp "$QWEN_MODEL_BLOB" "${RESOURCES}/models/qwen2.5-3b.gguf"
+# qwen model NOT bundled — downloaded on first launch via ModelManager.
 
-# Step 5: Generate Info.plist
+# Step 5: Generate Info.plist (and copy app icon)
 PLIST_VERSION="${VERSION}"
-[ "$MODE" = "dev" ] && PLIST_VERSION="dev"
+[ "$MODE" = "dev" ] && PLIST_VERSION="${VERSION}+dev"
 echo "[5/7] Generating Info.plist (v${PLIST_VERSION})..."
+
+# Copy app icon if present
+if [ -f "${SCRIPT_DIR}/AppIcon.icns" ]; then
+    cp "${SCRIPT_DIR}/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
+fi
+
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -258,6 +256,8 @@ cat > "${CONTENTS}/Info.plist" << PLIST
     <string>${PLIST_VERSION}</string>
     <key>CFBundleExecutable</key>
     <string>voiceink</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSUIElement</key>
@@ -270,20 +270,45 @@ cat > "${CONTENTS}/Info.plist" << PLIST
 </plist>
 PLIST
 
-# Step 6: Ad-hoc code signing
-echo "[6/7] Code signing (ad-hoc)..."
+# Step 6: Code signing
+# - dev mode: ad-hoc sign (any local Mac can launch)
+# - release mode: Developer ID Application + hardened runtime + entitlements (notarization-ready)
+DEVELOPER_ID="Developer ID Application: Paul Stupple (94QK2GK5GT)"
+ENTITLEMENTS="${SCRIPT_DIR}/entitlements.plist"
+
+if [ "$MODE" = "release" ]; then
+    echo "[6/7] Code signing (Developer ID + hardened runtime)..."
+    SIGN_IDENTITY="$DEVELOPER_ID"
+    SIGN_OPTS="--force --sign \"$SIGN_IDENTITY\" --timestamp --options runtime --entitlements \"$ENTITLEMENTS\""
+else
+    echo "[6/7] Code signing (ad-hoc)..."
+    SIGN_IDENTITY="-"
+    SIGN_OPTS="--force --sign -"
+fi
+
 chmod -R u+rw "$BUNDLE"
 xattr -cr "$BUNDLE" 2>/dev/null || true
-# Sign dylibs first, then executables, then the bundle
+
+# Sign dylibs and .so files first (deepest first), then executables, then bundle
+sign_one() {
+    local target="$1"
+    if [ "$MODE" = "release" ]; then
+        codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "$target" 2>/dev/null || \
+        codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "$target"
+    else
+        codesign --force --sign - "$target" 2>/dev/null || true
+    fi
+}
+
 for lib in "${RESOURCES}"/lib/*.dylib; do
-    codesign --force --sign - "$lib" 2>/dev/null || true
+    sign_one "$lib"
 done
 for lib in "${RESOURCES}"/lib-llama/*.dylib "${RESOURCES}"/lib-llama/*.so; do
-    codesign --force --sign - "$lib" 2>/dev/null || true
+    sign_one "$lib"
 done
-codesign --force --sign - "${RESOURCES}/whisper-server"
-codesign --force --sign - "${RESOURCES}/llama-server"
-codesign --force --sign - "$BUNDLE"
+sign_one "${RESOURCES}/whisper-server"
+sign_one "${RESOURCES}/llama-server"
+sign_one "$BUNDLE"
 
 # Step 7: Verify dylibs
 echo "[7/7] Verifying dylib loading..."
@@ -309,8 +334,6 @@ BUNDLE="$FINAL_BUNDLE"
 CONTENTS="${BUNDLE}/Contents"
 RESOURCES="${CONTENTS}/Resources"
 BINARY_SIZE=$(du -sh "${CONTENTS}/MacOS/voiceink" | cut -f1)
-WHISPER_SIZE=$(du -sh "${RESOURCES}/models/ggml-large-v3-turbo-q5_0.bin" | cut -f1)
-QWEN_SIZE=$(du -sh "${RESOURCES}/models/qwen2.5-3b.gguf" | cut -f1)
 LIB_SIZE=$(du -sh "${RESOURCES}/lib/" | cut -f1)
 LIB_LLAMA_SIZE=$(du -sh "${RESOURCES}/lib-llama/" | cut -f1)
 TOTAL_SIZE=$(du -sh "$BUNDLE" | cut -f1)
@@ -320,9 +343,7 @@ echo "=== Done! ==="
 echo "  Binary:       ${BINARY_SIZE}"
 echo "  Whisper libs: ${LIB_SIZE}"
 echo "  Llama libs:   ${LIB_LLAMA_SIZE}"
-echo "  Whisper model: ${WHISPER_SIZE}"
-echo "  Qwen model:   ${QWEN_SIZE}"
-echo "  Total:        ${TOTAL_SIZE}"
+echo "  Total:        ${TOTAL_SIZE}  (models downloaded on first launch)"
 echo ""
 echo "  ${BUNDLE}"
 echo ""
@@ -362,10 +383,77 @@ if [ "$MODE" = "release" ]; then
         rm -f "$DMG_TMP"
         # Also create/update symlink without version for convenience
         ln -sf "$DMG_NAME" "${SCRIPT_DIR}/${DMG_LATEST}"
+
+        # Step 9: Notarize (required for distribution outside App Store)
+        # Order: submit DMG → Apple notarizes the .app inside → staple .app →
+        # rebuild DMG with stapled .app → sign & staple DMG
+        echo ""
+        echo "=== Notarizing ==="
+        echo "[notary] Signing DMG for submission..."
+        codesign --force --sign "$DEVELOPER_ID" --timestamp "$DMG_PATH"
+
+        echo "[notary] Submitting to Apple notary service (this can take 1-5 minutes)..."
+        if xcrun notarytool submit "$DMG_PATH" \
+            --keychain-profile voiceink-notary \
+            --wait 2>&1 | tee /tmp/voiceink-notary.log; then
+            STATUS=$(grep -E "^\s*status:" /tmp/voiceink-notary.log | tail -1 | awk '{print $2}')
+            if [ "$STATUS" = "Accepted" ]; then
+                echo "[notary] Stapling .app..."
+                xcrun stapler staple "$FINAL_BUNDLE"
+
+                echo "[notary] Rebuilding DMG with stapled .app..."
+                rm -f "$DMG_PATH" "$DMG_TMP"
+                "$CREATE_DMG" \
+                    --volname "${APP_NAME}" \
+                    --window-pos 200 120 \
+                    --window-size 600 400 \
+                    --icon-size 128 \
+                    --icon "${APP_NAME}.app" 150 185 \
+                    --app-drop-link 450 185 \
+                    "${BG_ARGS[@]}" \
+                    --no-internet-enable \
+                    "$DMG_TMP" \
+                    "$FINAL_BUNDLE" \
+                    2>&1 | grep -v "^$"
+                cp "$DMG_TMP" "$DMG_PATH"
+                rm -f "$DMG_TMP"
+
+                echo "[notary] Signing final DMG..."
+                codesign --force --sign "$DEVELOPER_ID" --timestamp "$DMG_PATH"
+
+                echo "[notary] Submitting final DMG to notary service..."
+                if xcrun notarytool submit "$DMG_PATH" \
+                    --keychain-profile voiceink-notary \
+                    --wait 2>&1 | tee /tmp/voiceink-notary2.log; then
+                    STATUS2=$(grep -E "^\s*status:" /tmp/voiceink-notary2.log | tail -1 | awk '{print $2}')
+                    if [ "$STATUS2" = "Accepted" ]; then
+                        xcrun stapler staple "$DMG_PATH"
+                        echo "[notary] OK — .app and DMG both notarized + stapled"
+                    else
+                        echo "[notary] WARNING — final DMG notarization status: $STATUS2"
+                        echo "[notary] .app is stapled, DMG is not — should still work"
+                    fi
+                else
+                    echo "[notary] WARNING — final DMG notarization failed, but .app is stapled"
+                fi
+            else
+                echo "[notary] FAILED — status: $STATUS"
+                SUBMISSION_ID=$(grep -E "^\s*id:" /tmp/voiceink-notary.log | head -1 | awk '{print $2}')
+                if [ -n "$SUBMISSION_ID" ]; then
+                    echo "[notary] Fetching log for submission $SUBMISSION_ID..."
+                    xcrun notarytool log "$SUBMISSION_ID" --keychain-profile voiceink-notary
+                fi
+                exit 1
+            fi
+        else
+            echo "[notary] FAILED — see /tmp/voiceink-notary.log"
+            exit 1
+        fi
+
         DMG_SIZE=$(du -sh "$DMG_PATH" | cut -f1)
         DMG_SHA256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
         echo ""
-        echo "  DMG:          ${DMG_SIZE}  ${DMG_NAME}"
+        echo "  DMG:          ${DMG_SIZE}  ${DMG_NAME}  (signed + notarized + stapled)"
         echo "  SHA256:       ${DMG_SHA256}"
         echo "  ${DMG_PATH}"
     else

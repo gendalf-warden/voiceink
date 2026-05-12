@@ -19,6 +19,11 @@ public struct Config: Codable {
     /// Smart punctuation for file transcription. Off by default — raw Whisper output is usually
     /// good enough, and LLM adds ~60% processing time plus ~10% risk of word substitution.
     public var filePunctuationEnabled: Bool
+    /// User-defined word replacements applied after Whisper, before LLM.
+    /// Keys are Whisper output forms, values are the corrected forms.
+    /// Example: ["Демале": "ДеМоле", "вагена": "вагона"].
+    /// Matching is case-insensitive but the value is inserted verbatim.
+    public var replacements: [String: String]
 
     public init(
         whisperCliPath: String, whisperServerPath: String, whisperModelPath: String,
@@ -26,7 +31,8 @@ public struct Config: Codable {
         llamaServerPath: String, llamaModelPath: String,
         ollamaEnabled: Bool, ollamaModel: String, ollamaEndpoint: String,
         launchAtLogin: Bool, logTranscriptions: Bool,
-        punctuationEnabled: Bool, filePunctuationEnabled: Bool
+        punctuationEnabled: Bool, filePunctuationEnabled: Bool,
+        replacements: [String: String] = [:]
     ) {
         self.whisperCliPath = whisperCliPath
         self.whisperServerPath = whisperServerPath
@@ -43,6 +49,7 @@ public struct Config: Codable {
         self.logTranscriptions = logTranscriptions
         self.punctuationEnabled = punctuationEnabled
         self.filePunctuationEnabled = filePunctuationEnabled
+        self.replacements = replacements
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,13 +66,21 @@ public struct Config: Codable {
         ollamaModel = try container.decode(String.self, forKey: .ollamaModel)
         ollamaEndpoint = try container.decode(String.self, forKey: .ollamaEndpoint)
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? true
-        punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? (Config.systemRAMGB > 8)
-        filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? false
+        logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? false
+        punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? false
+        filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? (Config.systemRAMGB > 8)
+        replacements = try container.decodeIfPresent([String: String].self, forKey: .replacements) ?? [:]
     }
 
-    public static let configDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/voiceink")
+    /// Config directory. Overridable via VOICEINK_CONFIG_DIR env var (used by UIPreview tests
+    /// to avoid clobbering the production config).
+    public static let configDir: URL = {
+        if let override = ProcessInfo.processInfo.environment["VOICEINK_CONFIG_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/voiceink")
+    }()
     public static let configFile = configDir.appendingPathComponent("config.json")
 
     public static let defaultConfig = Config(
@@ -81,9 +96,10 @@ public struct Config: Codable {
         ollamaModel: "qwen2.5:3b",
         ollamaEndpoint: "http://localhost:11434",
         launchAtLogin: false,
-        logTranscriptions: true,
-        punctuationEnabled: systemRAMGB > 8,
-        filePunctuationEnabled: false
+        logTranscriptions: false,
+        punctuationEnabled: false,
+        filePunctuationEnabled: systemRAMGB > 8,
+        replacements: [:]
     )
 
     /// System RAM in GB
@@ -168,8 +184,9 @@ public struct Config: Codable {
             }
         }
 
-        // Detect model (bundle first)
+        // Detect model (Application Support first, then bundle, then dev paths)
         let modelPaths = [
+            ModelManager.modelsDir.appendingPathComponent("ggml-large-v3-turbo-q5_0.bin").path as String?,
             resourcePath.map { $0 + "/models/ggml-large-v3-turbo-q5_0.bin" },
             fm.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Claude/Whispier cli/models/ggml-large-v3-turbo-q5_0.bin").path,
@@ -195,8 +212,9 @@ public struct Config: Codable {
             }
         }
 
-        // Detect qwen model (bundle first, then Ollama blobs)
+        // Detect qwen model (Application Support first, then bundle)
         let llamaModelPaths = [
+            ModelManager.modelsDir.appendingPathComponent("qwen2.5-3b.gguf").path as String?,
             resourcePath.map { $0 + "/models/qwen2.5-3b.gguf" },
         ].compactMap { $0 }
         for path in llamaModelPaths {

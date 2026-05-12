@@ -3,9 +3,11 @@ import PackageDescription
 
 let package = Package(
     name: "VoiceInk",
+    defaultLocalization: "en",
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "voiceink", targets: ["VoiceInk"]),
+        .executable(name: "UIPreview", targets: ["UIPreview"]),
     ],
     targets: [
         .executableTarget(
@@ -17,8 +19,18 @@ let package = Package(
                 .linkedFramework("CoreAudio"),
             ]
         ),
+        .executableTarget(
+            name: "UIPreview",
+            dependencies: ["VoiceInkLib"],
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+            ]
+        ),
         .target(
             name: "VoiceInkLib",
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
