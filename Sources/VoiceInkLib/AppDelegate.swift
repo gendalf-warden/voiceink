@@ -492,11 +492,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 self?.startLLMSync()
             }
-        } else if effects.markLLMNotEager {
-            // LLM stays loaded; only the eager flag drops so file pipeline can
-            // releaseLazyLLM if both modes go .off later.
+        } else if effects.stopLLM {
+            // User explicitly turned dictation off. Drop the eager flag and
+            // unload the LLM to free ~2 GB RAM. File mode (if non-.off) uses
+            // lazy load and will reload on demand.
             llmEagerlyLoaded = false
-            log("Dictation mode disabled — LLM stays loaded for current session", tag: "Config")
+            log("Dictation mode disabled — unloading LLM", tag: "Config")
+            Task { [weak self] in
+                await self?.releaseLazyLLM()
+            }
         }
 
         if effects.updateLaunchAgent {

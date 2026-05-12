@@ -17,10 +17,11 @@ public struct ConfigChangeEffects: Equatable {
     /// load the LLM eagerly so the next push-to-talk has it warm.
     /// `false` if an LLM is already running (load would be a no-op).
     public var startLLMEagerly: Bool = false
-    /// Dictation moved away from a mode that needed the LLM. The LLM stays
-    /// loaded for the current session (file mode may still want it on demand);
-    /// caller only needs to drop the "eagerly loaded" flag.
-    public var markLLMNotEager: Bool = false
+    /// Dictation moved away from a mode that needed the LLM. Caller must
+    /// drop the eager flag AND unload the LLM (frees ~2 GB RAM). File mode
+    /// uses lazy load and reloads on demand if needed — no benefit to
+    /// holding the server alive after the user explicitly turned dictation off.
+    public var stopLLM: Bool = false
 
     public init() {}
 
@@ -41,7 +42,7 @@ public struct ConfigChangeEffects: Equatable {
             startLLMEagerly = true
         }
         if !nowOn && wasOn {
-            markLLMNotEager = true
+            stopLLM = true
         }
     }
 }

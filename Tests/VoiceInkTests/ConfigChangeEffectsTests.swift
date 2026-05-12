@@ -68,7 +68,7 @@ final class ConfigChangeEffectsTests: XCTestCase {
         let effects = ConfigChangeEffects(from: old, to: new, llmAlreadyRunning: false)
         XCTAssertTrue(effects.startLLMEagerly,
                       ".off → .translate must request eager LLM load")
-        XCTAssertFalse(effects.markLLMNotEager)
+        XCTAssertFalse(effects.stopLLM)
     }
 
     func testDictationOffToSmartRequestsLLMStart() {
@@ -82,16 +82,23 @@ final class ConfigChangeEffectsTests: XCTestCase {
         let cfg = baseConfig()
         let effects = ConfigChangeEffects(from: cfg, to: cfg, llmAlreadyRunning: false)
         XCTAssertFalse(effects.startLLMEagerly)
-        XCTAssertFalse(effects.markLLMNotEager)
+        XCTAssertFalse(effects.stopLLM)
     }
 
-    func testDictationSmartToOffMarksNotEager() {
+    func testDictationSmartToOffStopsLLM() {
         var old = baseConfig(); old.dictationMode = .smart
-        var new = baseConfig() // .off
+        let new = baseConfig() // .off
         let effects = ConfigChangeEffects(from: old, to: new, llmAlreadyRunning: true)
-        XCTAssertTrue(effects.markLLMNotEager)
+        XCTAssertTrue(effects.stopLLM, ".smart → .off must unload LLM to free RAM")
         XCTAssertFalse(effects.startLLMEagerly,
                        "going to .off should not request a new LLM start")
+    }
+
+    func testDictationTranslateToOffStopsLLM() {
+        var old = baseConfig(); old.dictationMode = .translate
+        let new = baseConfig() // .off
+        let effects = ConfigChangeEffects(from: old, to: new, llmAlreadyRunning: true)
+        XCTAssertTrue(effects.stopLLM)
     }
 
     func testDictationSmartToTranslateKeepsLLMRunning() {
@@ -100,7 +107,7 @@ final class ConfigChangeEffectsTests: XCTestCase {
         var new = baseConfig(); new.dictationMode = .translate
         let effects = ConfigChangeEffects(from: old, to: new, llmAlreadyRunning: true)
         XCTAssertFalse(effects.startLLMEagerly)
-        XCTAssertFalse(effects.markLLMNotEager,
+        XCTAssertFalse(effects.stopLLM,
                        "mode-to-mode swap should not flap the eager flag")
     }
 
@@ -122,7 +129,7 @@ final class ConfigChangeEffectsTests: XCTestCase {
         new.fileMode = .smart
         let effects = ConfigChangeEffects(from: old, to: new, llmAlreadyRunning: false)
         XCTAssertFalse(effects.startLLMEagerly)
-        XCTAssertFalse(effects.markLLMNotEager)
+        XCTAssertFalse(effects.stopLLM)
     }
 
     func testFileModeChangeToTranslateDoesNotTriggerEagerLLMStart() {
