@@ -37,8 +37,9 @@ var sampleConfig = Config(
     ollamaEndpoint: "http://localhost:11434",
     launchAtLogin: false,
     logTranscriptions: true,
-    punctuationEnabled: true,
-    filePunctuationEnabled: false,
+    dictationMode: .punctuation,
+    fileMode: .off,
+    translateTarget: "en",
     replacements: [
         "Демале": "ДеМоле",
         "вагена": "вагона",
@@ -78,7 +79,7 @@ class PreviewDelegate: NSObject, NSApplicationDelegate {
         case "settings":
             settingsWC = SettingsWindowController(config: config)
             settingsWC?.onConfigChanged = { newConfig in
-                print("[UIPreview] config changed: punct=\(newConfig.punctuationEnabled) filePunct=\(newConfig.filePunctuationEnabled)")
+                print("[UIPreview] config changed: dictation=\(newConfig.dictationMode.rawValue) file=\(newConfig.fileMode.rawValue) translateTo=\(newConfig.translateTarget)")
             }
             settingsWC?.showWindow()
 

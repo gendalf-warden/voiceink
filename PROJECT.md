@@ -302,15 +302,13 @@ open VoiceInk.app        # запуск
 
 ### Фаза 5 — Качество транскрипции
 6. ~~**Словарь замен**~~ ✅ — TextReplacer + ReplacementsWindowController с live search, edit-on-click, нативные ±  кнопки. Применяется после Whisper, до LLM. Меню: Replacements… (Cmd+R)
-7. **Режимы пост-обработки** (переключение в меню или горячей клавишей):
-   - *Пунктуация* (текущий) — только знаки и заглавные
-   - *Грамматика* — проверка смысловой целостности, согласования, падежей, сопряжений
-   - *Список* — автоформатирование в буллеты
-8. **Режим перевода**: говоришь на одном языке → текст на другом
-9. **Smoke-тесты транскрипции**: эталонные WAV + проверка спецсимволов, чисел, англицизмов
+7. ~~**Режимы пост-обработки**~~ ✅ — `PostProcessingMode` enum (off/punctuation/grammar/list/translate). Отдельные режимы для диктовки и файлов. Submenu в menu bar + popups в Settings. Hallucination guards (3× length, script) skip для translate. Backward-compat: старый `punctuationEnabled` → `.punctuation`/`.off`
+8. ~~**Режим перевода**~~ ✅ — `.translate` режим, target language picker в Settings (14 языков: en/ru/es/fr/de/it/pt/pl/uk/tr/zh/ja/ko/ar)
+9. ~~**Smoke-тесты транскрипции (mock-уровень)**~~ ✅ — `PostProcessingPipeline` + `LLMProcessor` protocol + `MockLLMProcessor`. 28 unit-тестов: mode→prompt, length guard, script guard, fail-safe, legacy migration. **Манул**: WAV-based regression checklist (17 кейсов) в `TESTS.md §6.7` — нужны эталонные записи Димы
 10. ~~**Продвинутая транскрипция файлов A+B+D**~~ ✅ — chunked pipeline + улучшенное окно + экспорт
    - *Осталось*: C. Batch & drag-drop — multiple file selection, drag на иконку, очередь с прогрессом
    - *Осталось*: авто-сохранение рядом с исходником (video.mp4 → video.srt)
+11. **Эталонные WAV для smoke-тестов**: записать короткие WAV-фикстуры (RU/EN/mixed, цифры, англицизмы) и автоматизировать `scripts/smoke-test-modes.sh` — гонит whisper-server + LLM против всех 5 режимов, проверяет инварианты из `TESTS.md §6.7`
 
 ### Фаза 6 — Продвинутые фичи
 10. **Голосовые команды**: "новый абзац", "точка", "удали последнее слово"

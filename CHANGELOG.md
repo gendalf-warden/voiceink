@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Post-processing modes** (P5.7): replaces the single punctuation toggle with a
+  selectable LLM mode applied to dictation and file transcription independently.
+  Modes: `off` (raw), `punctuation` (default), `grammar` (fix cases/agreements),
+  `list` (reformat as bullets), `translate` (target language picker).
+- **Translation mode** (P5.8): translate dictation or files into 14 languages
+  (en, ru, es, fr, de, it, pt, pl, uk, tr, zh, ja, ko, ar). Hallucination guards
+  (3× length, script preservation) are disabled for this mode since the script
+  change is intentional.
+- **Menu bar mode submenu**: status bar shows `Dictation: X` and `File: Y` with
+  submenus that include all 5 modes and checkmark the current selection.
+- **Settings UI**: two `NSPopUpButton`s for dictation/file modes; translate-target
+  picker appears only when at least one mode is `.translate`.
+- **PostProcessingPipeline** helper + `LLMProcessor` protocol — extracted
+  testable post-processing contract; `LlamaClient` and `OllamaClient` conform.
+- **Smoke tests** (P5.9): 28 new tests covering mode→prompt mapping, Codable
+  round-trip, legacy `punctuationEnabled` migration, length/script guards, fail-safe
+  on LLM error. Manual mode regression checklist (17 cases) added to TESTS.md.
+
+### Changed
+- **Config schema**: `punctuationEnabled` / `filePunctuationEnabled` (booleans)
+  replaced with `dictationMode` / `fileMode` (`PostProcessingMode` enum) plus
+  `translateTarget` (ISO 639-1 code). Old v0.3b configs decode transparently:
+  `true → .punctuation`, `false → .off`.
+- LLM client API: `postProcess(text:)` → `process(text:systemPrompt:)`.
+- `FileTranscriptionManager.punctuationEnabled` → `mode` + `translateTarget`.
+
 ## [0.3b] - 2026-05-07
 
 ### Added

@@ -94,7 +94,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         splash?.setMilestone(0)
         log("Whisper CLI: \(config.whisperCliPath)")
         log("Model: \(config.whisperModelPath)")
-        log("RAM: \(Config.systemRAMGB) GB, punctuation: \(config.punctuationEnabled)")
+        log("RAM: \(Config.systemRAMGB) GB, dictation: \(config.dictationMode.rawValue), file: \(config.fileMode.rawValue)")
 
         // Status bar (lightweight, stays on main thread)
         statusBar = StatusBarController()
@@ -117,6 +117,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBar.onOpenReplacements = { [weak self] in
             self?.openReplacements()
+        }
+        statusBar.onModeChange = { [weak self] forFile, mode in
+            guard let self = self else { return }
+            if forFile {
+                self.config.fileMode = mode
+            } else {
+                self.config.dictationMode = mode
+            }
+            self.config.save()
+            self.applyConfig(self.config)
+            log("Mode changed (\(forFile ? "file" : "dictation")): \(mode.rawValue)", tag: "StatusBar")
         }
 
         audioRecorder = AudioRecorder()
@@ -142,13 +153,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             // Eager load (always-warm): only if dictation needs it (sub-second latency required).
             // File transcription lazy-loads on demand and unloads after (saves ~2 GB idle RAM).
             DispatchQueue.main.async { self.splash?.setMilestone(2) }
-            if self.config.punctuationEnabled {
+            if self.config.dictationMode != .off {
                 self.llmEagerlyLoaded = true
                 self.startLLMSync()
-            } else if self.config.filePunctuationEnabled {
+            } else if self.config.fileMode != .off {
                 log("LLM lazy mode: will load only during file transcription")
             } else {
-                log("Smart punctuation disabled for both dictation and files — LLM never loaded")
+                log("Post-processing disabled for both dictation and files — LLM never loaded")
             }
 
             // Milestone 3: Permissions & hotkey
@@ -277,11 +288,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
-                // Step 2: Post-process with LLM (bundled llama → Ollama → raw)
+                // Step 2: Post-process with LLM if mode != .off (bundled llama → Ollama → raw)
+                let mode = self.config.dictationMode
+                let systemPrompt = mode.systemPrompt(translateTarget: self.config.translateTarget)
                 let llamaReady = self.llamaClient?.isServerRunning == true
                 let ollamaReady = self.ollamaClient != nil && self.config.ollamaEnabled
-                let llmAvailable = llamaReady || ollamaReady
-                if llmAvailable {
+                let llmAvailable = (llamaReady || ollamaReady) && systemPrompt != nil
+                if llmAvailable, let prompt = systemPrompt {
                     await MainActor.run { self.state = .postProcessing }
 
                     let useLlama = self.llamaClient?.isServerRunning == true
@@ -290,17 +303,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                         let llmStart = Date()
                         let processed: String
                         if useLlama, let llamaClient = self.llamaClient {
-                            processed = try await llamaClient.postProcess(text: rawText)
+                            processed = try await llamaClient.process(text: rawText, systemPrompt: prompt)
                         } else if let ollamaClient = self.ollamaClient {
-                            processed = try await ollamaClient.postProcess(text: rawText)
+                            processed = try await ollamaClient.process(text: rawText, systemPrompt: prompt)
                         } else {
                             throw NSError(domain: "VoiceInk", code: -1, userInfo: [NSLocalizedDescriptionKey: "No LLM available"])
                         }
                         let llmTime = Date().timeIntervalSince(llmStart)
 
-                        // Guard against LLM hallucination: if output is 3x+ longer than input, use raw
+                        // Guard against LLM hallucination: if output is 3x+ longer than input, use raw.
+                        // Skip for .translate — translation length is genuinely unpredictable.
                         let finalText: String
-                        if processed.count > rawText.count * 3 {
+                        if mode != .translate && processed.count > rawText.count * 3 {
                             log("LLM output too long (\(processed.count) vs \(rawText.count) chars) — using raw text", tag: "LLM")
                             finalText = rawText
                         } else {
@@ -416,7 +430,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             fileTranscriptionManager = FileTranscriptionManager()
         }
         let manager = fileTranscriptionManager!
-        manager.punctuationEnabled = config.filePunctuationEnabled
+        manager.mode = config.fileMode
+        manager.translateTarget = config.translateTarget
         manager.replacements = config.replacements
         manager.onLLMNeeded = { [weak self] in
             await self?.ensureLLMReady() ?? false

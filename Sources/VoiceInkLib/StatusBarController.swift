@@ -25,6 +25,12 @@ public class StatusBarController {
     public var onTranscribeFile: (() -> Void)?
     public var onUndoDictation: (() -> Void)?
     public var onOpenReplacements: (() -> Void)?
+    /// Called when the user changes a mode from the menu bar.
+    /// `forFile` distinguishes dictation vs. file mode.
+    public var onModeChange: ((_ forFile: Bool, _ mode: PostProcessingMode) -> Void)?
+
+    /// Modes in display order for the submenu.
+    private let modeOrder: [PostProcessingMode] = [.off, .punctuation, .grammar, .list, .translate]
 
     public var state: AppState = .idle {
         didSet {
@@ -95,19 +101,31 @@ public class StatusBarController {
             modelItem.isEnabled = false
             menu.addItem(modelItem)
 
-            let llmStatus: String
-            if !config.punctuationEnabled {
-                llmStatus = "off"
-            } else if config.llamaAvailable {
-                llmStatus = "qwen2.5:3b (bundled)"
+            let llmBackend: String
+            if config.llamaAvailable {
+                llmBackend = "qwen2.5:3b (bundled)"
             } else if config.ollamaEnabled {
-                llmStatus = "\(config.ollamaModel) (Ollama)"
+                llmBackend = "\(config.ollamaModel) (Ollama)"
             } else {
-                llmStatus = "disabled"
+                llmBackend = "none"
             }
-            let llmItem = NSMenuItem(title: "Punctuation: \(llmStatus)", action: nil, keyEquivalent: "")
+            let llmItem = NSMenuItem(title: "LLM: \(llmBackend)", action: nil, keyEquivalent: "")
             llmItem.isEnabled = false
             menu.addItem(llmItem)
+
+            // Dictation mode submenu
+            menu.addItem(makeModeMenuItem(
+                title: "Dictation: \(config.dictationMode.localizedName)",
+                currentMode: config.dictationMode,
+                forFile: false
+            ))
+
+            // File mode submenu
+            menu.addItem(makeModeMenuItem(
+                title: "File: \(config.fileMode.localizedName)",
+                currentMode: config.fileMode,
+                forFile: true
+            ))
 
             let langItem = NSMenuItem(title: "Language: \(config.language)", action: nil, keyEquivalent: "")
             langItem.isEnabled = false
@@ -176,6 +194,38 @@ public class StatusBarController {
     @objc private func quitAction() {
         onQuit?()
         NSApplication.shared.terminate(nil)
+    }
+
+    /// Build a submenu of modes (checkmark next to the current one) under a parent label.
+    /// `forFile` differentiates dictation vs file mode when the user picks.
+    private func makeModeMenuItem(title: String, currentMode: PostProcessingMode, forFile: Bool) -> NSMenuItem {
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for mode in modeOrder {
+            let item = NSMenuItem(
+                title: mode.localizedName,
+                action: forFile ? #selector(fileModeAction(_:)) : #selector(dictationModeAction(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.state = (mode == currentMode) ? .on : .off
+            item.representedObject = mode.rawValue
+            submenu.addItem(item)
+        }
+        parent.submenu = submenu
+        return parent
+    }
+
+    @objc private func dictationModeAction(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = PostProcessingMode(rawValue: raw) else { return }
+        onModeChange?(false, mode)
+    }
+
+    @objc private func fileModeAction(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = PostProcessingMode(rawValue: raw) else { return }
+        onModeChange?(true, mode)
     }
 
     // MARK: - Animation

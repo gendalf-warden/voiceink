@@ -3,11 +3,19 @@
 "settings.hotkey"                      = "Горячая клавиша:";
 "settings.launch_at_login"             = "Запускать при входе";
 "settings.log_transcription"           = "Логировать текст диктовки";
-"settings.smart_punctuation"           = "Умная пунктуация";
-"settings.smart_punctuation.ram_hint"  = "Требует 16+ ГБ RAM (у вас: %lld ГБ)";
-"settings.smart_punctuation.dictation" = "При диктовке";
-"settings.smart_punctuation.files"     = "При транскрипции файлов";
+"settings.post_processing"             = "Пост-обработка";
+"settings.post_processing.ram_hint"    = "LLM-режимы требуют 16+ ГБ RAM (у вас: %lld ГБ)";
+"settings.post_processing.dictation"   = "Диктовка:";
+"settings.post_processing.files"       = "Файлы:";
+"settings.translate_target"            = "Перевод на:";
 "settings.hotkey_hint"                 = "Кликни на поле, затем нажми сочетание клавиш (напр. ⌃1) или Fn.";
+
+/* Post-processing modes */
+"mode.off"                             = "Без обработки";
+"mode.punctuation"                     = "Пунктуация";
+"mode.grammar"                         = "Грамматика";
+"mode.list"                            = "Список";
+"mode.translate"                       = "Перевод";
 
 /* Model download window */
 "download.title"                       = "Загрузка моделей";

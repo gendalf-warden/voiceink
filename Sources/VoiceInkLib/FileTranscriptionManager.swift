@@ -19,7 +19,10 @@ public class FileTranscriptionManager {
     public var onLLMNeeded: (() async -> Bool)?
     /// Called after pipeline finishes. Should release LLM if it was lazy-loaded.
     public var onLLMRelease: (() async -> Void)?
-    public var punctuationEnabled: Bool = true
+    /// Post-processing mode applied to each chunk's transcription
+    public var mode: PostProcessingMode = .punctuation
+    /// Target language for .translate mode (ISO 639-1 code)
+    public var translateTarget: String = "en"
     /// User replacements applied after Whisper, before LLM
     public var replacements: [String: String] = [:]
     /// Number of concurrent ASR/LLM requests (2 = ~60% faster than sequential baseline)
@@ -107,10 +110,11 @@ public class FileTranscriptionManager {
 
             window.beginStreaming(totalChunks: totalChunks, totalDuration: duration)
 
-            // Step 3.5: Lazy-load LLM if needed (when dictation toggle is off but file toggle is on,
+            // Step 3.5: Lazy-load LLM if needed (when dictation toggle is off but file mode != .off,
             // LLM is not warm at startup — load it now, release after pipeline finishes).
-            if punctuationEnabled, let onNeeded = onLLMNeeded {
-                window.setStatus("Loading punctuation model...")
+            let needsLLM = mode != .off
+            if needsLLM, let onNeeded = onLLMNeeded {
+                window.setStatus("Loading post-processing model...")
                 let ready = await onNeeded()
                 if !ready {
                     log("LLM unavailable — files will use raw Whisper output", tag: "FileTranscription")
@@ -141,13 +145,17 @@ public class FileTranscriptionManager {
             // Step 4b: Parallel pipeline — up to `concurrency` ASR and LLM requests in flight
             let llamaReady = llamaClient?.isServerRunning == true
             let ollamaReady = ollamaClient != nil
-            let useLLM = punctuationEnabled && (llamaReady || ollamaReady)
+            let activeMode = mode
+            let systemPrompt = activeMode.systemPrompt(translateTarget: translateTarget)
+            let useLLM = activeMode != .off && systemPrompt != nil && (llamaReady || ollamaReady)
             let asrSem = AsyncSemaphore(value: concurrency)
             let llmSem = AsyncSemaphore(value: concurrency)
             let completed = ChunkCounter()
             let filterLanguage = expectedLanguage
-            let targetLang = expectedLanguage
-            log("Pipeline: concurrency=\(concurrency), useLLM=\(useLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
+            // Script-mismatch guards only apply when LLM should preserve the source language.
+            // For .translate the output language is intentionally different — disable the guard.
+            let targetLang = activeMode == .translate ? nil : expectedLanguage
+            log("Pipeline: concurrency=\(concurrency), mode=\(activeMode.rawValue), useLLM=\(useLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
 
             await withTaskGroup(of: Void.self) { group in
                 for chunk in chunks {
@@ -209,23 +217,24 @@ public class FileTranscriptionManager {
 
                         // LLM (pipelined — runs while next ASR is already in flight)
                         var finalText = raw
-                        if useLLM && !raw.isEmpty {
+                        if useLLM && !raw.isEmpty, let prompt = systemPrompt {
                             await llmSem.wait()
                             do {
                                 let processed: String
                                 if llamaReady, let llamaClient = self.llamaClient {
-                                    processed = try await llamaClient.postProcess(text: raw)
+                                    processed = try await llamaClient.process(text: raw, systemPrompt: prompt)
                                 } else if let ollamaClient = self.ollamaClient {
-                                    processed = try await ollamaClient.postProcess(text: raw)
+                                    processed = try await ollamaClient.process(text: raw, systemPrompt: prompt)
                                 } else {
                                     processed = raw
                                 }
-                                // Hallucination guard: length
-                                if processed.count > raw.count * 3 {
+                                // Hallucination guard: length — skip for translate (length unpredictable)
+                                if activeMode != .translate && processed.count > raw.count * 3 {
                                     log("LLM output too long for chunk \(chunk.index) — using raw", tag: "FileTranscription")
                                     finalText = raw
                                 }
-                                // Hallucination guard: translation (LLM ignored "do not translate" rule)
+                                // Hallucination guard: unintended translation (LLM ignored "do not translate" rule).
+                                // targetLang is nil for .translate mode, so this branch is skipped automatically.
                                 else if let expected = targetLang,
                                         !Transcriber.scriptMatches(processed, language: expected),
                                         Transcriber.scriptMatches(raw, language: expected) {

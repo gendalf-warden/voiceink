@@ -14,11 +14,15 @@ public struct Config: Codable {
     public var ollamaEndpoint: String
     public var launchAtLogin: Bool
     public var logTranscriptions: Bool
-    /// Smart punctuation for voice dictation (push-to-talk). Short phrases benefit from it.
-    public var punctuationEnabled: Bool
-    /// Smart punctuation for file transcription. Off by default — raw Whisper output is usually
-    /// good enough, and LLM adds ~60% processing time plus ~10% risk of word substitution.
-    public var filePunctuationEnabled: Bool
+    /// Post-processing applied to dictation (push-to-talk) output.
+    /// Was `punctuationEnabled: Bool` before v0.4b; legacy field is read on decode for migration.
+    public var dictationMode: PostProcessingMode
+    /// Post-processing applied to file transcription output.
+    /// Was `filePunctuationEnabled: Bool` before v0.4b; legacy field is read on decode for migration.
+    public var fileMode: PostProcessingMode
+    /// Target language code for `.translate` mode (e.g. "en", "ru"). ISO 639-1.
+    /// Ignored unless one of the modes is `.translate`.
+    public var translateTarget: String
     /// User-defined word replacements applied after Whisper, before LLM.
     /// Keys are Whisper output forms, values are the corrected forms.
     /// Example: ["Демале": "ДеМоле", "вагена": "вагона"].
@@ -31,7 +35,8 @@ public struct Config: Codable {
         llamaServerPath: String, llamaModelPath: String,
         ollamaEnabled: Bool, ollamaModel: String, ollamaEndpoint: String,
         launchAtLogin: Bool, logTranscriptions: Bool,
-        punctuationEnabled: Bool, filePunctuationEnabled: Bool,
+        dictationMode: PostProcessingMode, fileMode: PostProcessingMode,
+        translateTarget: String = "en",
         replacements: [String: String] = [:]
     ) {
         self.whisperCliPath = whisperCliPath
@@ -47,9 +52,22 @@ public struct Config: Codable {
         self.ollamaEndpoint = ollamaEndpoint
         self.launchAtLogin = launchAtLogin
         self.logTranscriptions = logTranscriptions
-        self.punctuationEnabled = punctuationEnabled
-        self.filePunctuationEnabled = filePunctuationEnabled
+        self.dictationMode = dictationMode
+        self.fileMode = fileMode
+        self.translateTarget = translateTarget
         self.replacements = replacements
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case whisperCliPath, whisperServerPath, whisperModelPath
+        case language, hotkeyKeyCode, hotkeyModifiers
+        case llamaServerPath, llamaModelPath
+        case ollamaEnabled, ollamaModel, ollamaEndpoint
+        case launchAtLogin, logTranscriptions
+        case dictationMode, fileMode, translateTarget
+        case replacements
+        // Legacy keys (pre-v0.4b) — decode-only for migration
+        case punctuationEnabled, filePunctuationEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -67,9 +85,46 @@ public struct Config: Codable {
         ollamaEndpoint = try container.decode(String.self, forKey: .ollamaEndpoint)
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? false
-        punctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) ?? false
-        filePunctuationEnabled = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) ?? (Config.systemRAMGB > 8)
+
+        // Decode modes — prefer new keys, fall back to legacy booleans for migration
+        if let mode = try container.decodeIfPresent(PostProcessingMode.self, forKey: .dictationMode) {
+            dictationMode = mode
+        } else if let legacy = try container.decodeIfPresent(Bool.self, forKey: .punctuationEnabled) {
+            dictationMode = legacy ? .punctuation : .off
+        } else {
+            dictationMode = .off
+        }
+        if let mode = try container.decodeIfPresent(PostProcessingMode.self, forKey: .fileMode) {
+            fileMode = mode
+        } else if let legacy = try container.decodeIfPresent(Bool.self, forKey: .filePunctuationEnabled) {
+            fileMode = legacy ? .punctuation : .off
+        } else {
+            fileMode = Config.systemRAMGB > 8 ? .punctuation : .off
+        }
+        translateTarget = try container.decodeIfPresent(String.self, forKey: .translateTarget) ?? "en"
+
         replacements = try container.decodeIfPresent([String: String].self, forKey: .replacements) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(whisperCliPath, forKey: .whisperCliPath)
+        try container.encode(whisperServerPath, forKey: .whisperServerPath)
+        try container.encode(whisperModelPath, forKey: .whisperModelPath)
+        try container.encode(language, forKey: .language)
+        try container.encode(hotkeyKeyCode, forKey: .hotkeyKeyCode)
+        try container.encode(hotkeyModifiers, forKey: .hotkeyModifiers)
+        try container.encode(llamaServerPath, forKey: .llamaServerPath)
+        try container.encode(llamaModelPath, forKey: .llamaModelPath)
+        try container.encode(ollamaEnabled, forKey: .ollamaEnabled)
+        try container.encode(ollamaModel, forKey: .ollamaModel)
+        try container.encode(ollamaEndpoint, forKey: .ollamaEndpoint)
+        try container.encode(launchAtLogin, forKey: .launchAtLogin)
+        try container.encode(logTranscriptions, forKey: .logTranscriptions)
+        try container.encode(dictationMode, forKey: .dictationMode)
+        try container.encode(fileMode, forKey: .fileMode)
+        try container.encode(translateTarget, forKey: .translateTarget)
+        try container.encode(replacements, forKey: .replacements)
     }
 
     /// Config directory. Overridable via VOICEINK_CONFIG_DIR env var (used by UIPreview tests
@@ -97,8 +152,9 @@ public struct Config: Codable {
         ollamaEndpoint: "http://localhost:11434",
         launchAtLogin: false,
         logTranscriptions: false,
-        punctuationEnabled: false,
-        filePunctuationEnabled: systemRAMGB > 8,
+        dictationMode: .off,
+        fileMode: systemRAMGB > 8 ? .punctuation : .off,
+        translateTarget: "en",
         replacements: [:]
     )
 

@@ -20,8 +20,9 @@ final class ConfigTests: XCTestCase {
             ollamaEndpoint: "http://localhost:11434",
             launchAtLogin: true,
             logTranscriptions: false,
-            punctuationEnabled: true,
-            filePunctuationEnabled: true,
+            dictationMode: .grammar,
+            fileMode: .translate,
+            translateTarget: "ru",
             replacements: ["Демале": "ДеМоле", "API": "АПИ"]
         )
 
@@ -42,12 +43,13 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(decoded.ollamaEndpoint, config.ollamaEndpoint)
         XCTAssertEqual(decoded.launchAtLogin, config.launchAtLogin)
         XCTAssertEqual(decoded.logTranscriptions, config.logTranscriptions)
-        XCTAssertEqual(decoded.punctuationEnabled, config.punctuationEnabled)
-        XCTAssertEqual(decoded.filePunctuationEnabled, config.filePunctuationEnabled)
+        XCTAssertEqual(decoded.dictationMode, config.dictationMode)
+        XCTAssertEqual(decoded.fileMode, config.fileMode)
+        XCTAssertEqual(decoded.translateTarget, config.translateTarget)
         XCTAssertEqual(decoded.replacements, config.replacements)
     }
 
-    // MARK: - Backward compatibility (missing optional fields)
+    // MARK: - Backward compatibility
 
     func testDecodeMissingOptionalFields() throws {
         // Minimal JSON — only required fields, optional ones missing
@@ -66,69 +68,105 @@ final class ConfigTests: XCTestCase {
 
         let config = try JSONDecoder().decode(Config.self, from: json)
 
-        // Optional fields should have defaults
         XCTAssertEqual(config.whisperServerPath, "")
         XCTAssertEqual(config.llamaServerPath, "")
         XCTAssertEqual(config.llamaModelPath, "")
         XCTAssertEqual(config.launchAtLogin, false)
-        // Privacy by default: transcription text NOT logged unless user opts in
         XCTAssertEqual(config.logTranscriptions, false)
-        // punctuationEnabled defaults to false (off for dictation)
-        XCTAssertEqual(config.punctuationEnabled, false)
-        // filePunctuationEnabled defaults to RAM > 8 GB
-        XCTAssertEqual(config.filePunctuationEnabled, Config.systemRAMGB > 8)
-        // replacements defaults to empty dict
+        // No legacy keys, no new keys — defaults
+        XCTAssertEqual(config.dictationMode, .off)
+        XCTAssertEqual(config.fileMode, Config.systemRAMGB > 8 ? .punctuation : .off)
+        XCTAssertEqual(config.translateTarget, "en")
         XCTAssertEqual(config.replacements, [:])
+    }
+
+    /// Legacy v0.3b config with `punctuationEnabled` / `filePunctuationEnabled` booleans
+    /// should migrate to the new mode enum values.
+    func testDecodeLegacyPunctuationBooleansMigrate() throws {
+        let json = """
+        {
+            "whisperCliPath": "/usr/bin/whisper",
+            "whisperModelPath": "/models/model.bin",
+            "language": "auto",
+            "hotkeyKeyCode": 63,
+            "hotkeyModifiers": [],
+            "ollamaEnabled": true,
+            "ollamaModel": "qwen2.5:3b",
+            "ollamaEndpoint": "http://localhost:11434",
+            "punctuationEnabled": true,
+            "filePunctuationEnabled": false
+        }
+        """.data(using: .utf8)!
+
+        let config = try JSONDecoder().decode(Config.self, from: json)
+
+        XCTAssertEqual(config.dictationMode, .punctuation, "legacy punctuationEnabled=true should become .punctuation")
+        XCTAssertEqual(config.fileMode, .off, "legacy filePunctuationEnabled=false should become .off")
+    }
+
+    /// New keys win over legacy ones when both are present (forward-compat scenario).
+    func testDecodeNewKeysWinOverLegacy() throws {
+        let json = """
+        {
+            "whisperCliPath": "/usr/bin/whisper",
+            "whisperModelPath": "/models/model.bin",
+            "language": "auto",
+            "hotkeyKeyCode": 63,
+            "hotkeyModifiers": [],
+            "ollamaEnabled": true,
+            "ollamaModel": "qwen2.5:3b",
+            "ollamaEndpoint": "http://localhost:11434",
+            "punctuationEnabled": false,
+            "filePunctuationEnabled": false,
+            "dictationMode": "grammar",
+            "fileMode": "list"
+        }
+        """.data(using: .utf8)!
+
+        let config = try JSONDecoder().decode(Config.self, from: json)
+
+        XCTAssertEqual(config.dictationMode, .grammar)
+        XCTAssertEqual(config.fileMode, .list)
     }
 
     // MARK: - llamaAvailable
 
-    func testLlamaAvailableBothSet() {
-        let config = Config(
-            whisperCliPath: "", whisperServerPath: "", whisperModelPath: "",
+    private func makeBasicConfig(
+        llamaServerPath: String,
+        llamaModelPath: String,
+        whisperModelPath: String = ""
+    ) -> Config {
+        Config(
+            whisperCliPath: "", whisperServerPath: "", whisperModelPath: whisperModelPath,
             language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
-            llamaServerPath: "/bin/llama", llamaModelPath: "/models/model.gguf",
+            llamaServerPath: llamaServerPath, llamaModelPath: llamaModelPath,
             ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
-            filePunctuationEnabled: false
+            launchAtLogin: false, logTranscriptions: true,
+            dictationMode: .punctuation, fileMode: .off
         )
+    }
+
+    func testLlamaAvailableBothSet() {
+        let config = makeBasicConfig(llamaServerPath: "/bin/llama", llamaModelPath: "/models/model.gguf")
         XCTAssertTrue(config.llamaAvailable)
     }
 
     func testLlamaAvailableMissingServer() {
-        let config = Config(
-            whisperCliPath: "", whisperServerPath: "", whisperModelPath: "",
-            language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
-            llamaServerPath: "", llamaModelPath: "/models/model.gguf",
-            ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
-            filePunctuationEnabled: false
-        )
+        let config = makeBasicConfig(llamaServerPath: "", llamaModelPath: "/models/model.gguf")
         XCTAssertFalse(config.llamaAvailable)
     }
 
     func testLlamaAvailableMissingModel() {
-        let config = Config(
-            whisperCliPath: "", whisperServerPath: "", whisperModelPath: "",
-            language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
-            llamaServerPath: "/bin/llama", llamaModelPath: "",
-            ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
-            filePunctuationEnabled: false
-        )
+        let config = makeBasicConfig(llamaServerPath: "/bin/llama", llamaModelPath: "")
         XCTAssertFalse(config.llamaAvailable)
     }
 
     // MARK: - whisperModelName
 
     func testWhisperModelName() {
-        let config = Config(
-            whisperCliPath: "", whisperServerPath: "", whisperModelPath: "/path/to/ggml-large-v3-turbo-q5_0.bin",
-            language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
+        let config = makeBasicConfig(
             llamaServerPath: "", llamaModelPath: "",
-            ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
-            filePunctuationEnabled: false
+            whisperModelPath: "/path/to/ggml-large-v3-turbo-q5_0.bin"
         )
         XCTAssertEqual(config.whisperModelName, "large-v3-turbo-q5_0")
     }
@@ -136,14 +174,7 @@ final class ConfigTests: XCTestCase {
     // MARK: - hotkeyDescription
 
     func testHotkeyDescriptionDelegatesToKeyMap() {
-        let config = Config(
-            whisperCliPath: "", whisperServerPath: "", whisperModelPath: "",
-            language: "auto", hotkeyKeyCode: 63, hotkeyModifiers: [],
-            llamaServerPath: "", llamaModelPath: "",
-            ollamaEnabled: true, ollamaModel: "", ollamaEndpoint: "",
-            launchAtLogin: false, logTranscriptions: true, punctuationEnabled: true,
-            filePunctuationEnabled: false
-        )
+        let config = makeBasicConfig(llamaServerPath: "", llamaModelPath: "")
         XCTAssertEqual(config.hotkeyDescription, "Fn")
     }
 }

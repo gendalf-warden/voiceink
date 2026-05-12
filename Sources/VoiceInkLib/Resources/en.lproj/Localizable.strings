@@ -3,11 +3,19 @@
 "settings.hotkey"                      = "Hotkey:";
 "settings.launch_at_login"             = "Launch at Login";
 "settings.log_transcription"           = "Log transcription text";
-"settings.smart_punctuation"           = "Smart Punctuation";
-"settings.smart_punctuation.ram_hint"  = "Requires 16+ GB RAM (you have: %lld GB)";
-"settings.smart_punctuation.dictation" = "For dictation";
-"settings.smart_punctuation.files"     = "For file transcription";
+"settings.post_processing"             = "Post-Processing";
+"settings.post_processing.ram_hint"    = "LLM modes require 16+ GB RAM (you have: %lld GB)";
+"settings.post_processing.dictation"   = "Dictation:";
+"settings.post_processing.files"       = "Files:";
+"settings.translate_target"            = "Translate to:";
 "settings.hotkey_hint"                 = "Click the hotkey field, then press a key combo (e.g. ⌃1) or Fn alone.";
+
+/* Post-processing modes */
+"mode.off"                             = "Off (raw)";
+"mode.punctuation"                     = "Punctuation";
+"mode.grammar"                         = "Grammar";
+"mode.list"                            = "Bullet list";
+"mode.translate"                       = "Translate";
 
 /* Model download window */
 "download.title"                       = "Downloading Models";
