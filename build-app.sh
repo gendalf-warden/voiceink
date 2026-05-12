@@ -229,10 +229,16 @@ install_name_tool -add_rpath @executable_path/lib-llama "${RESOURCES}/llama-serv
 
 # qwen model NOT bundled — downloaded on first launch via ModelManager.
 
-# Step 5: Generate Info.plist
+# Step 5: Generate Info.plist (and copy app icon)
 PLIST_VERSION="${VERSION}"
 [ "$MODE" = "dev" ] && PLIST_VERSION="${VERSION}+dev"
 echo "[5/7] Generating Info.plist (v${PLIST_VERSION})..."
+
+# Copy app icon if present
+if [ -f "${SCRIPT_DIR}/AppIcon.icns" ]; then
+    cp "${SCRIPT_DIR}/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
+fi
+
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -250,6 +256,8 @@ cat > "${CONTENTS}/Info.plist" << PLIST
     <string>${PLIST_VERSION}</string>
     <key>CFBundleExecutable</key>
     <string>voiceink</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSUIElement</key>

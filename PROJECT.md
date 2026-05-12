@@ -298,6 +298,7 @@ open VoiceInk.app        # запуск
 ### Фаза 4 — Ежедневные улучшения
 3. **Минимальная длина записи**: если < 0.5с — не отправлять на Whisper (случайное нажатие Fn)
 4. **Отмена последней диктовки**: Cmd+Z — восстановить предыдущий clipboard
+5. **Replacements: Cmd+V не работает в ячейках таблицы** — ячейка получает фокус, но paste из клипборда игнорируется. Нужен Edit menu или responder chain fix для NSTableView text field editor
 
 ### Фаза 5 — Качество транскрипции
 6. ~~**Словарь замен**~~ ✅ — TextReplacer + ReplacementsWindowController с live search, edit-on-click, нативные ±  кнопки. Применяется после Whisper, до LLM. Меню: Replacements… (Cmd+R)
