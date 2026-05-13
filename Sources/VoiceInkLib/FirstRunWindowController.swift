@@ -31,6 +31,7 @@ public class FirstRunWindowController {
         window.isMovableByWindowBackground = true
         window.center()
         window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isReleasedWhenClosed = false
 
         let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
