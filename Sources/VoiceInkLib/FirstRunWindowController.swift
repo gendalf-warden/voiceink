@@ -6,7 +6,7 @@ public class FirstRunWindowController {
     private var window: NSWindow?
     private var contentView: NSView!
     private let width: CGFloat = 440
-    private let height: CGFloat = 340
+    private let height: CGFloat = 380
     private var onComplete: (() -> Void)?
 
     private var micButton: NSButton!
@@ -14,6 +14,10 @@ public class FirstRunWindowController {
     private var micStatus: NSTextField!
     private var accStatus: NSTextField!
     private var continueButton: NSButton!
+    private var accHintLabel: NSTextField!
+    /// Counts poll ticks since user clicked "Grant" for Accessibility.
+    /// After several ticks without detection, we show the stale-entry hint.
+    private var accGrantClickedPollCount: Int?
 
     public init() {}
 
@@ -123,7 +127,18 @@ public class FirstRunWindowController {
         accButton.bezelStyle = .rounded
         accButton.frame = NSRect(x: width - 100, y: y - 8, width: 70, height: 28)
         content.addSubview(accButton)
-        y -= 56
+        y -= 38
+
+        // Hint for stale Accessibility entry (hidden until needed)
+        accHintLabel = NSTextField(wrappingLabelWithString:
+            "Not detected? Remove VoiceInk from the Accessibility list, then click Grant again.")
+        accHintLabel.font = NSFont.systemFont(ofSize: 11)
+        accHintLabel.textColor = .systemOrange
+        accHintLabel.alignment = .center
+        accHintLabel.frame = NSRect(x: 30, y: y - 28, width: width - 60, height: 28)
+        accHintLabel.isHidden = true
+        content.addSubview(accHintLabel)
+        y -= 46
 
         // Separator
         let sep = NSBox(frame: NSRect(x: 30, y: y, width: width - 60, height: 1))
@@ -162,6 +177,9 @@ public class FirstRunWindowController {
         window?.level = .normal
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+        // Start counting poll ticks to detect stale Accessibility entry
+        accGrantClickedPollCount = 0
+        accHintLabel.isHidden = true
         // Restore floating after a delay to let the system dialog appear
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.window?.level = .floating
@@ -195,9 +213,18 @@ public class FirstRunWindowController {
         if accGranted {
             accButton.isHidden = true
             accStatus.stringValue = "\u{2705}"
+            accHintLabel.isHidden = true
+            accGrantClickedPollCount = nil
         } else {
             accButton.isHidden = false
             accStatus.stringValue = ""
+            // Show hint after ~7.5s of polling without detection (5 × 1.5s)
+            if let count = accGrantClickedPollCount {
+                accGrantClickedPollCount = count + 1
+                if count >= 5 {
+                    accHintLabel.isHidden = false
+                }
+            }
         }
     }
 

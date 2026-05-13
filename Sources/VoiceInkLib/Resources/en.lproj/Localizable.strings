@@ -20,7 +20,7 @@
 "download.subtitle"                    = "VoiceInk needs ML models for speech recognition (~3.5 GB)";
 "download.whisper_model"               = "Speech recognition";
 "download.coreml_model"                = "GPU acceleration";
-"download.llm_model"                   = "Smart punctuation";
+"download.llm_model"                   = "Smart punctuation & translation";
 "download.cancel"                      = "Cancel";
 "download.retry"                       = "Retry";
 "download.complete"                    = "Models ready!";
