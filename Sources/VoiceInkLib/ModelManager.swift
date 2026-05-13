@@ -103,7 +103,11 @@ public final class ModelManager: NSObject, URLSessionDownloadDelegate {
     /// Check available disk space. Returns true if enough free space.
     public static func checkDiskSpace(needed: Int64) -> Bool {
         do {
-            let values = try modelsDir.deletingLastPathComponent()
+            // Ensure parent directory exists before querying volume capacity.
+            // On first launch the Application Support/VoiceInk dir may not exist yet.
+            let parentDir = modelsDir.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+            let values = try parentDir
                 .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             let available = values.volumeAvailableCapacityForImportantUsage ?? 0
             return available > needed

@@ -202,32 +202,40 @@ public struct Config: Codable {
         }
     }
 
-    /// Check that binary/model paths still exist on disk. If the user moved
-    /// the .app (e.g. ~/Applications → /Applications), the saved paths go
-    /// stale. Re-runs detectDefaults() for any missing path and returns true
-    /// if anything changed so the caller can save.
+    /// Check that binary/model paths still exist on disk. Handles three cases:
+    /// 1. Path is empty (never set, e.g. models downloaded after first config save)
+    /// 2. Path is stale (app moved, e.g. /Volumes/DMG → /Applications)
+    /// 3. Path points to DMG mount (/Volumes/)
+    /// Re-runs detectDefaults() for any broken path and returns true if anything
+    /// changed so the caller can save.
     private static func redetectStalePaths(_ config: inout Config) -> Bool {
         let fm = FileManager.default
         let fresh = detectDefaults()
         var changed = false
 
-        if !config.whisperServerPath.isEmpty && !fm.isExecutableFile(atPath: config.whisperServerPath) {
-            log("whisperServerPath stale: \(config.whisperServerPath) → \(fresh.whisperServerPath)", tag: "Config")
+        func needsRedetect(path: String, isExec: Bool) -> Bool {
+            if path.isEmpty { return true }
+            if path.hasPrefix("/Volumes/") { return true }
+            return isExec ? !fm.isExecutableFile(atPath: path) : !fm.fileExists(atPath: path)
+        }
+
+        if needsRedetect(path: config.whisperServerPath, isExec: true) && !fresh.whisperServerPath.isEmpty {
+            log("whisperServerPath redetect: \"\(config.whisperServerPath)\" → \"\(fresh.whisperServerPath)\"", tag: "Config")
             config.whisperServerPath = fresh.whisperServerPath
             changed = true
         }
-        if !config.whisperModelPath.isEmpty && !fm.fileExists(atPath: config.whisperModelPath) {
-            log("whisperModelPath stale: \(config.whisperModelPath) → \(fresh.whisperModelPath)", tag: "Config")
+        if needsRedetect(path: config.whisperModelPath, isExec: false) && !fresh.whisperModelPath.isEmpty {
+            log("whisperModelPath redetect: \"\(config.whisperModelPath)\" → \"\(fresh.whisperModelPath)\"", tag: "Config")
             config.whisperModelPath = fresh.whisperModelPath
             changed = true
         }
-        if !config.llamaServerPath.isEmpty && !fm.isExecutableFile(atPath: config.llamaServerPath) {
-            log("llamaServerPath stale: \(config.llamaServerPath) → \(fresh.llamaServerPath)", tag: "Config")
+        if needsRedetect(path: config.llamaServerPath, isExec: true) && !fresh.llamaServerPath.isEmpty {
+            log("llamaServerPath redetect: \"\(config.llamaServerPath)\" → \"\(fresh.llamaServerPath)\"", tag: "Config")
             config.llamaServerPath = fresh.llamaServerPath
             changed = true
         }
-        if !config.llamaModelPath.isEmpty && !fm.fileExists(atPath: config.llamaModelPath) {
-            log("llamaModelPath stale: \(config.llamaModelPath) → \(fresh.llamaModelPath)", tag: "Config")
+        if needsRedetect(path: config.llamaModelPath, isExec: false) && !fresh.llamaModelPath.isEmpty {
+            log("llamaModelPath redetect: \"\(config.llamaModelPath)\" → \"\(fresh.llamaModelPath)\"", tag: "Config")
             config.llamaModelPath = fresh.llamaModelPath
             changed = true
         }
