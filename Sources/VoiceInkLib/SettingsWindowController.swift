@@ -291,17 +291,69 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
             log("Uninstall: removed LaunchAgent", tag: "Uninstall")
         }
 
-        log("Uninstall: cleanup complete, opening Applications", tag: "Uninstall")
+        log("Uninstall: cleanup complete, showing final message", tag: "Uninstall")
 
+        // Show final splash with OK button before quitting
+        showUninstallComplete()
+    }
+
+    private func showUninstallComplete() {
+        let w: CGFloat = 380
+        let h: CGFloat = 160
+
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .hidden
+        win.isMovableByWindowBackground = true
+        win.center()
+        win.level = .floating
+        win.isReleasedWhenClosed = false
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+        win.contentView = content
+
+        let icon = NSTextField(labelWithString: "\u{2705}")
+        icon.font = NSFont.systemFont(ofSize: 28)
+        icon.alignment = .center
+        icon.frame = NSRect(x: 0, y: h - 55, width: w, height: 36)
+        content.addSubview(icon)
+
+        let msg = NSTextField(labelWithString: "To complete uninstall, please remove\nthe app from Applications folder.")
+        msg.font = NSFont.systemFont(ofSize: 13)
+        msg.alignment = .center
+        msg.lineBreakMode = .byWordWrapping
+        msg.maximumNumberOfLines = 2
+        msg.frame = NSRect(x: 20, y: h - 100, width: w - 40, height: 36)
+        content.addSubview(msg)
+
+        let okBtn = NSButton(title: "OK", target: self, action: #selector(uninstallOKClicked))
+        okBtn.bezelStyle = .rounded
+        okBtn.keyEquivalent = "\r"
+        okBtn.frame = NSRect(x: w / 2 - 40, y: 16, width: 80, height: 32)
+        content.addSubview(okBtn)
+
+        // Close settings window, show this one
+        self.window?.close()
+        win.makeKeyAndOrderFront(nil)
+
+        // Store reference so it stays alive
+        objc_setAssociatedObject(self, "uninstallDoneWin", win, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    @objc private func uninstallOKClicked() {
         // Open Applications folder and select VoiceInk.app
         let appPath = "/Applications/VoiceInk.app"
-        if fm.fileExists(atPath: appPath) {
+        if FileManager.default.fileExists(atPath: appPath) {
             NSWorkspace.shared.selectFile(appPath, inFileViewerRootedAtPath: "/Applications")
         } else {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: "/Applications")
         }
 
-        // Quit after a brief delay so Finder has time to open
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             NSApp.terminate(nil)
         }
