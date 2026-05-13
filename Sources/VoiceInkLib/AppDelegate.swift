@@ -447,6 +447,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         manager.startFileTranscription(transcriber: transcriber)
     }
 
+    // MARK: - Dock click
+
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            openSettings()
+        }
+        return true
+    }
+
     // MARK: - Settings
 
     private func openSettings() {

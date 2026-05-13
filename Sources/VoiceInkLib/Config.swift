@@ -191,11 +191,47 @@ public struct Config: Codable {
         }
         do {
             let data = try Data(contentsOf: configFile)
-            return try JSONDecoder().decode(Config.self, from: data)
+            var config = try JSONDecoder().decode(Config.self, from: data)
+            if redetectStalePaths(&config) {
+                config.save()
+            }
+            return config
         } catch {
             log("Failed to load: \(error). Using defaults.", tag: "Config")
             return detectDefaults()
         }
+    }
+
+    /// Check that binary/model paths still exist on disk. If the user moved
+    /// the .app (e.g. ~/Applications → /Applications), the saved paths go
+    /// stale. Re-runs detectDefaults() for any missing path and returns true
+    /// if anything changed so the caller can save.
+    private static func redetectStalePaths(_ config: inout Config) -> Bool {
+        let fm = FileManager.default
+        let fresh = detectDefaults()
+        var changed = false
+
+        if !config.whisperServerPath.isEmpty && !fm.isExecutableFile(atPath: config.whisperServerPath) {
+            log("whisperServerPath stale: \(config.whisperServerPath) → \(fresh.whisperServerPath)", tag: "Config")
+            config.whisperServerPath = fresh.whisperServerPath
+            changed = true
+        }
+        if !config.whisperModelPath.isEmpty && !fm.fileExists(atPath: config.whisperModelPath) {
+            log("whisperModelPath stale: \(config.whisperModelPath) → \(fresh.whisperModelPath)", tag: "Config")
+            config.whisperModelPath = fresh.whisperModelPath
+            changed = true
+        }
+        if !config.llamaServerPath.isEmpty && !fm.isExecutableFile(atPath: config.llamaServerPath) {
+            log("llamaServerPath stale: \(config.llamaServerPath) → \(fresh.llamaServerPath)", tag: "Config")
+            config.llamaServerPath = fresh.llamaServerPath
+            changed = true
+        }
+        if !config.llamaModelPath.isEmpty && !fm.fileExists(atPath: config.llamaModelPath) {
+            log("llamaModelPath stale: \(config.llamaModelPath) → \(fresh.llamaModelPath)", tag: "Config")
+            config.llamaModelPath = fresh.llamaModelPath
+            changed = true
+        }
+        return changed
     }
 
     public func save() {

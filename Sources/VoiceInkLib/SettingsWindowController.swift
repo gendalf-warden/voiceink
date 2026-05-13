@@ -143,9 +143,20 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         contentView.addSubview(translateTargetPopup)
         updateTranslateTargetVisibility()
 
+        // --- Uninstall ---
+        let sep = NSBox(frame: NSRect(x: 20, y: 70, width: width - 40, height: 1))
+        sep.boxType = .separator
+        contentView.addSubview(sep)
+
+        let uninstallBtn = NSButton(title: "Uninstall VoiceInk\u{2026}", target: self, action: #selector(uninstallClicked))
+        uninstallBtn.bezelStyle = .rounded
+        uninstallBtn.contentTintColor = .systemRed
+        uninstallBtn.frame = NSRect(x: 20, y: 36, width: 160, height: 28)
+        contentView.addSubview(uninstallBtn)
+
         // --- Hint ---
         let hint = NSTextField(wrappingLabelWithString: "settings.hotkey_hint".localized)
-        hint.frame = NSRect(x: 20, y: 16, width: width - 40, height: 34)
+        hint.frame = NSRect(x: 190, y: 36, width: width - 210, height: 28)
         hint.font = NSFont.systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         contentView.addSubview(hint)
@@ -234,9 +245,186 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         updateTranslateTargetVisibility()
     }
 
+    // MARK: - Uninstall
+
+    @objc private func uninstallClicked() {
+        let confirmWC = UninstallConfirmationController()
+        confirmWC.show { [weak self] in
+            self?.performUninstall()
+        }
+        // Keep a strong reference so the window doesn't vanish
+        objc_setAssociatedObject(self, "uninstallWC", confirmWC, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func performUninstall() {
+        log("Uninstall: starting cleanup", tag: "Uninstall")
+        let fm = FileManager.default
+
+        // Kill whisper-server and llama-server
+        for name in ["whisper-server", "llama-server"] {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            task.arguments = ["-f", name]
+            try? task.run()
+            task.waitUntilExit()
+        }
+
+        // Delete models (~3.5 GB)
+        let modelsDir = ModelManager.modelsDir.deletingLastPathComponent()
+        if fm.fileExists(atPath: modelsDir.path) {
+            try? fm.removeItem(at: modelsDir)
+            log("Uninstall: removed \(modelsDir.path)", tag: "Uninstall")
+        }
+
+        // Delete config + logs
+        let configDir = Config.configDir
+        if fm.fileExists(atPath: configDir.path) {
+            try? fm.removeItem(at: configDir)
+            log("Uninstall: removed \(configDir.path)", tag: "Uninstall")
+        }
+
+        // Delete LaunchAgent
+        let plist = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/com.voiceink.app.plist")
+        if fm.fileExists(atPath: plist.path) {
+            try? fm.removeItem(at: plist)
+            log("Uninstall: removed LaunchAgent", tag: "Uninstall")
+        }
+
+        log("Uninstall: cleanup complete, opening Applications", tag: "Uninstall")
+
+        // Open Applications folder and select VoiceInk.app
+        let appPath = "/Applications/VoiceInk.app"
+        if fm.fileExists(atPath: appPath) {
+            NSWorkspace.shared.selectFile(appPath, inFileViewerRootedAtPath: "/Applications")
+        } else {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: "/Applications")
+        }
+
+        // Quit after a brief delay so Finder has time to open
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApp.terminate(nil)
+        }
+    }
+
     // MARK: - NSWindowDelegate
     public func windowWillClose(_ notification: Notification) {
         NSApp.hideDockIfNoWindows()
+    }
+}
+
+// MARK: - UninstallConfirmationController
+
+/// Standalone confirmation window with "type delete" safety check.
+class UninstallConfirmationController: NSObject, NSTextFieldDelegate {
+    private var window: NSWindow?
+    private var deleteBtn: NSButton!
+    private var textField: NSTextField!
+    private var onConfirm: (() -> Void)?
+
+    func show(onConfirm: @escaping () -> Void) {
+        self.onConfirm = onConfirm
+
+        let w: CGFloat = 420
+        let h: CGFloat = 320
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.center()
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+        window.contentView = content
+
+        var y = h - 50
+
+        // Warning icon
+        let icon = NSTextField(labelWithString: "\u{26A0}\u{FE0F}")
+        icon.font = NSFont.systemFont(ofSize: 36)
+        icon.alignment = .center
+        icon.frame = NSRect(x: 0, y: y, width: w, height: 44)
+        content.addSubview(icon)
+        y -= 40
+
+        // Title
+        let title = NSTextField(labelWithString: "Uninstall VoiceInk")
+        title.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
+        title.alignment = .center
+        title.frame = NSRect(x: 0, y: y, width: w, height: 24)
+        content.addSubview(title)
+        y -= 28
+
+        // Description
+        let desc = NSTextField(wrappingLabelWithString:
+            "This will permanently delete all VoiceInk data:\n\n"
+            + "  \u{2022} ML models (~3.5 GB)\n"
+            + "  \u{2022} Configuration and logs\n"
+            + "  \u{2022} Launch Agent\n\n"
+            + "To finish, open Applications folder, move VoiceInk to Trash and quit the app.")
+        desc.font = NSFont.systemFont(ofSize: 12)
+        desc.textColor = .secondaryLabelColor
+        desc.alignment = .left
+        desc.frame = NSRect(x: 40, y: y - 110, width: w - 80, height: 110)
+        content.addSubview(desc)
+        y -= 124
+
+        // Text field prompt
+        let prompt = NSTextField(labelWithString: "Type delete to confirm:")
+        prompt.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        prompt.frame = NSRect(x: 40, y: y, width: 200, height: 18)
+        content.addSubview(prompt)
+        y -= 28
+
+        // Text field
+        textField = NSTextField(frame: NSRect(x: 40, y: y, width: w - 80, height: 24))
+        textField.placeholderString = "delete"
+        textField.font = NSFont.systemFont(ofSize: 13)
+        textField.bezelStyle = .roundedBezel
+        textField.delegate = self
+        content.addSubview(textField)
+        y -= 40
+
+        // Buttons
+        let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
+        cancelBtn.bezelStyle = .rounded
+        cancelBtn.frame = NSRect(x: w / 2 - 130, y: y, width: 120, height: 32)
+        content.addSubview(cancelBtn)
+
+        deleteBtn = NSButton(title: "Uninstall", target: self, action: #selector(confirmClicked))
+        deleteBtn.bezelStyle = .rounded
+        deleteBtn.contentTintColor = .systemRed
+        deleteBtn.frame = NSRect(x: w / 2 + 10, y: y, width: 120, height: 32)
+        deleteBtn.isEnabled = false
+        content.addSubview(deleteBtn)
+
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(textField)
+    }
+
+    // NSTextFieldDelegate — live validation
+    func controlTextDidChange(_ obj: Notification) {
+        let typed = textField.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
+        deleteBtn.isEnabled = (typed == "delete")
+    }
+
+    @objc private func cancelClicked() {
+        window?.close()
+        window = nil
+    }
+
+    @objc private func confirmClicked() {
+        window?.close()
+        window = nil
+        onConfirm?()
     }
 }
 

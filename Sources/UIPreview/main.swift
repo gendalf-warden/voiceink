@@ -91,15 +91,108 @@ class PreviewDelegate: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil)
             }
 
+        case "uninstall":
+            showUninstallConfirmation()
+
         default:
             print("Unknown window: \(windowName)")
-            print("Available: replacements, settings, download")
+            print("Available: replacements, settings, download, uninstall")
             NSApp.terminate(nil)
             return
         }
 
         // Bring window to front
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func showUninstallConfirmation() {
+        let w: CGFloat = 420
+        let h: CGFloat = 320
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.center()
+        window.level = .floating
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+        window.contentView = content
+
+        var y = h - 50
+
+        // Warning icon
+        let icon = NSTextField(labelWithString: "\u{26A0}\u{FE0F}")
+        icon.font = NSFont.systemFont(ofSize: 36)
+        icon.alignment = .center
+        icon.frame = NSRect(x: 0, y: y, width: w, height: 44)
+        content.addSubview(icon)
+        y -= 40
+
+        // Title
+        let title = NSTextField(labelWithString: "Uninstall VoiceInk")
+        title.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
+        title.alignment = .center
+        title.frame = NSRect(x: 0, y: y, width: w, height: 24)
+        content.addSubview(title)
+        y -= 28
+
+        // Description
+        let desc = NSTextField(wrappingLabelWithString:
+            "This will permanently delete all VoiceInk data:\n\n"
+            + "  \u{2022} ML models (~3.5 GB)\n"
+            + "  \u{2022} Configuration and logs\n"
+            + "  \u{2022} Launch Agent\n\n"
+            + "To finish, open Applications folder, move VoiceInk to Trash and quit the app.")
+        desc.font = NSFont.systemFont(ofSize: 12)
+        desc.textColor = .secondaryLabelColor
+        desc.alignment = .left
+        desc.frame = NSRect(x: 40, y: y - 110, width: w - 80, height: 110)
+        content.addSubview(desc)
+        y -= 124
+
+        // Text field prompt
+        let prompt = NSTextField(labelWithString: "Type delete to confirm:")
+        prompt.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        prompt.frame = NSRect(x: 40, y: y, width: 200, height: 18)
+        content.addSubview(prompt)
+        y -= 28
+
+        // Text field
+        let textField = NSTextField(frame: NSRect(x: 40, y: y, width: w - 80, height: 24))
+        textField.placeholderString = "delete"
+        textField.font = NSFont.systemFont(ofSize: 13)
+        textField.bezelStyle = .roundedBezel
+        content.addSubview(textField)
+        y -= 40
+
+        // Buttons
+        let cancelBtn = NSButton(title: "Cancel", target: nil, action: #selector(NSWindow.close))
+        cancelBtn.bezelStyle = .rounded
+        cancelBtn.frame = NSRect(x: w / 2 - 130, y: y, width: 120, height: 32)
+        cancelBtn.target = window
+        content.addSubview(cancelBtn)
+
+        let deleteBtn = NSButton(title: "Uninstall", target: nil, action: nil)
+        deleteBtn.bezelStyle = .rounded
+        deleteBtn.contentTintColor = .systemRed
+        deleteBtn.frame = NSRect(x: w / 2 + 10, y: y, width: 120, height: 32)
+        deleteBtn.isEnabled = false
+        content.addSubview(deleteBtn)
+
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(textField)
+
+        // Poll text field to enable/disable button
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { timer in
+            guard window.isVisible else { timer.invalidate(); return }
+            deleteBtn.isEnabled = textField.stringValue.lowercased().trimmingCharacters(in: .whitespaces) == "delete"
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
