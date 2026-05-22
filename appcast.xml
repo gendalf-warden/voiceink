@@ -6,29 +6,48 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.005</title>
-            <pubDate>Fri, 22 May 2026 21:31:00 +0000</pubDate>
-            <sparkle:version>0.5.005</sparkle:version>
-            <sparkle:shortVersionString>0.5.005</sparkle:shortVersionString>
+            <title>Version 0.5.006</title>
+            <pubDate>Fri, 22 May 2026 21:44:46 +0000</pubDate>
+            <sparkle:version>0.5.006</sparkle:version>
+            <sparkle:shortVersionString>0.5.006</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
+<p>Critical fixes for Sparkle install. 0.5.005 could find updates but not install</p>
+<p>them — Autoupdate failed with <code>Operation not permitted</code> when creating its</p>
+<p>install cache directory. Root cause: <code>build-app.sh</code> was re-signing</p>
+<p>Sparkle.framework&#x27;s internal XPC services + Updater.app + Autoupdate with the</p>
+<p>host app&#x27;s entitlements (audio-input, JIT, etc.). Those entitlements require an</p>
+<p><code>NSMicrophoneUsageDescription</code> in the binary&#x27;s Info.plist, which Sparkle&#x27;s</p>
+<p>internals don&#x27;t have, so macOS neutered the processes and Autoupdate couldn&#x27;t</p>
+<p>write to its own cache.</p>
+
 <h3>Fixed</h3>
 <ul>
-  <li><strong>Sparkle update dialog opening behind the active app</strong>: for an</li>
+  <li><strong>Sparkle install permission failures</strong>: <code>build-app.sh</code> now signs</li>
 </ul>
-<p>  accessory (menu-bar) app, clicking «Check for Updates…» didn&#x27;t bring the</p>
-<p>  process to the front, so the modal Sparkle alert appeared behind Safari /</p>
-<p>  Chrome / whatever else was focused — the user thought the menu item did</p>
-<p>  nothing. <code>UpdateController</code> now implements <code>SPUStandardUserDriverDelegate</code></p>
-<p>  and forces <code>NSApp.activate(ignoringOtherApps:)</code> from</p>
-<p>  <code>standardUserDriverWillShowModalAlert()</code>, which Sparkle calls right before</p>
-<p>  presenting any modal. Belt-and-braces: we also activate immediately when</p>
-<p>  the user clicks the menu item, before the network round-trip starts.</p>]]></description>
+<p>  Sparkle.framework internals with a new <code>sign_no_ent</code> helper that uses</p>
+<p>  <code>--options runtime</code> but no <code>--entitlements</code> flag. Host app and our own</p>
+<p>  bundled binaries (whisper-server, llama-server, voiceink) still sign with</p>
+<p>  the project&#x27;s <code>entitlements.plist</code>.</p>
+<ul>
+  <li><strong><code>codesign --deep --strict</code> resource-fork errors on Installer.xpc</strong>:</li>
+</ul>
+<p>  <code>xattr -cr</code> now runs against <code>Sparkle.framework</code> after copy to strip</p>
+<p>  <code>com.apple.FinderInfo</code> xattrs that <code>ditto</code> preserved from the SPM</p>
+<p>  artefact&#x27;s iCloud-Drive location.</p>
+<ul>
+  <li><strong>Race condition on GH Pages propagation during dual-publish</strong>: legacy</li>
+</ul>
+<p>  0.5.003 clients hitting the old GitHub Releases appcast URL could be</p>
+<p>  directed to a DMG that GH Pages hadn&#x27;t propagated yet (404). <code>release.sh</code></p>
+<p>  now publishes to <code>gh-pages</code> FIRST, waits for the Pages build to finish</p>
+<p>  (polling the GH API + verifying the DMG is reachable), and only THEN</p>
+<p>  uploads the appcast to GitHub Releases as the bridging mirror.</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.005.dmg"
-                length="12989825"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.006.dmg"
+                length="12986636"
                 type="application/octet-stream"
-                sparkle:edSignature="jLcU7SjDY9YHwlf4iYHNWMF62eiMAzkkffYsONnoMU0/LSP6mMXgxxEUzlu9RA+VvcDwdKWvQwozG90XRH2XCw==" />
+                sparkle:edSignature="mz3Yi2laW+I7u6+TiQ1oDorVA3HGb+doPmKuz5I+rnkj2BmcifqL3KUjaFjshwUu97/IimDhfJBIVs/esZ1jDw==" />
         </item>
     </channel>
 </rss>
