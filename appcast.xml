@@ -6,39 +6,28 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.004</title>
-            <pubDate>Fri, 22 May 2026 21:21:07 +0000</pubDate>
-            <sparkle:version>0.5.004</sparkle:version>
-            <sparkle:shortVersionString>0.5.004</sparkle:shortVersionString>
+            <title>Version 0.5.005</title>
+            <pubDate>Fri, 22 May 2026 21:28:26 +0000</pubDate>
+            <sparkle:version>0.5.005</sparkle:version>
+            <sparkle:shortVersionString>0.5.005</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://github.com/gendalf-warden/voiceink/releases/tag/v0.5.004</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://github.com/gendalf-warden/voiceink/releases/tag/v0.5.005</sparkle:releaseNotesLink>
             <description><![CDATA[
-Distribution migration: DMG and Sparkle appcast move from GitHub Releases to
-GitHub Pages (`https://gendalf-warden.github.io/voiceink/`). The user-facing
-download URL is now a clean static page that lists only the DMG — no
-GitHub-generated source-code archives. Source remains in the same repository
-but is not surfaced in the install flow.
-
-**Bridging release**: 0.5.004 is published to BOTH the old GitHub Releases
-URL (so already-installed 0.5.003 clients can find it via their baked-in
-`SUFeedURL`) and the new GH Pages URL. From 0.5.004 onwards the app's
-Info.plist references the new URL; subsequent releases publish only to
-GH Pages.
-
-### Changed
-- `SUFeedURL` in Info.plist:
-  `https://github.com/gendalf-warden/voiceink/releases/latest/download/appcast.xml`
-  → `https://gendalf-warden.github.io/voiceink/appcast.xml`
-- `scripts/release.sh` now dual-publishes: pushes DMG + appcast.xml + latest.json
-  + a regenerated index.html to the `gh-pages` branch, AND uploads the same DMG
-  to a GitHub Release tag for 0.5.003 clients to discover this update.
-- Old GitHub Release tags (`v0.1b` … `v0.5.003`) will be deleted after the
-  migration completes.]]></description>
+### Fixed
+- **Sparkle update dialog opening behind the active app**: for an
+  accessory (menu-bar) app, clicking «Check for Updates…» didn't bring the
+  process to the front, so the modal Sparkle alert appeared behind Safari /
+  Chrome / whatever else was focused — the user thought the menu item did
+  nothing. `UpdateController` now implements `SPUStandardUserDriverDelegate`
+  and forces `NSApp.activate(ignoringOtherApps:)` from
+  `standardUserDriverWillShowModalAlert()`, which Sparkle calls right before
+  presenting any modal. Belt-and-braces: we also activate immediately when
+  the user clicks the menu item, before the network round-trip starts.]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.004.dmg"
-                length="12988834"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.005.dmg"
+                length="12989825"
                 type="application/octet-stream"
-                sparkle:edSignature="70kzni57vq1P9ShTPHiC80tIFYfLDcbkv9Az4KVn/ezt0mpRpwn8zOeHfJB+beZGC5D9AnhBiFXIomqoSEasAw==" />
+                sparkle:edSignature="jLcU7SjDY9YHwlf4iYHNWMF62eiMAzkkffYsONnoMU0/LSP6mMXgxxEUzlu9RA+VvcDwdKWvQwozG90XRH2XCw==" />
         </item>
     </channel>
 </rss>
