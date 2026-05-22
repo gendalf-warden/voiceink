@@ -6,48 +6,34 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.006</title>
-            <pubDate>Fri, 22 May 2026 21:44:46 +0000</pubDate>
-            <sparkle:version>0.5.006</sparkle:version>
-            <sparkle:shortVersionString>0.5.006</sparkle:shortVersionString>
+            <title>Version 0.5.007</title>
+            <pubDate>Fri, 22 May 2026 21:51:09 +0000</pubDate>
+            <sparkle:version>0.5.007</sparkle:version>
+            <sparkle:shortVersionString>0.5.007</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
-<p>Critical fixes for Sparkle install. 0.5.005 could find updates but not install</p>
-<p>them — Autoupdate failed with <code>Operation not permitted</code> when creating its</p>
-<p>install cache directory. Root cause: <code>build-app.sh</code> was re-signing</p>
-<p>Sparkle.framework&#x27;s internal XPC services + Updater.app + Autoupdate with the</p>
-<p>host app&#x27;s entitlements (audio-input, JIT, etc.). Those entitlements require an</p>
-<p><code>NSMicrophoneUsageDescription</code> in the binary&#x27;s Info.plist, which Sparkle&#x27;s</p>
-<p>internals don&#x27;t have, so macOS neutered the processes and Autoupdate couldn&#x27;t</p>
-<p>write to its own cache.</p>
+<h3>Changed</h3>
+<ul>
+  <li><strong>Menu-bar icon position persistence</strong>: <code>NSStatusItem.autosaveName = &quot;VoiceInk&quot;</code>.</li>
+</ul>
+<p>  Without this, macOS picks a default slot at every launch — often behind the</p>
+<p>  camera notch on MacBook Air/Pro 14&quot; — and the user has to Cmd+drag the icon</p>
+<p>  each time. With autosaveName set, the OS remembers the user&#x27;s chosen</p>
+<p>  position across launches. Doesn&#x27;t avoid the initial under-notch position on</p>
+<p>  first install (Apple offers no API for that), but at least the user only has</p>
+<p>  to move it once.</p>
 
-<h3>Fixed</h3>
+<h3>Internal</h3>
 <ul>
-  <li><strong>Sparkle install permission failures</strong>: <code>build-app.sh</code> now signs</li>
+  <li>First release exercising the canonical post-migration update flow: 0.5.006</li>
 </ul>
-<p>  Sparkle.framework internals with a new <code>sign_no_ent</code> helper that uses</p>
-<p>  <code>--options runtime</code> but no <code>--entitlements</code> flag. Host app and our own</p>
-<p>  bundled binaries (whisper-server, llama-server, voiceink) still sign with</p>
-<p>  the project&#x27;s <code>entitlements.plist</code>.</p>
-<ul>
-  <li><strong><code>codesign --deep --strict</code> resource-fork errors on Installer.xpc</strong>:</li>
-</ul>
-<p>  <code>xattr -cr</code> now runs against <code>Sparkle.framework</code> after copy to strip</p>
-<p>  <code>com.apple.FinderInfo</code> xattrs that <code>ditto</code> preserved from the SPM</p>
-<p>  artefact&#x27;s iCloud-Drive location.</p>
-<ul>
-  <li><strong>Race condition on GH Pages propagation during dual-publish</strong>: legacy</li>
-</ul>
-<p>  0.5.003 clients hitting the old GitHub Releases appcast URL could be</p>
-<p>  directed to a DMG that GH Pages hadn&#x27;t propagated yet (404). <code>release.sh</code></p>
-<p>  now publishes to <code>gh-pages</code> FIRST, waits for the Pages build to finish</p>
-<p>  (polling the GH API + verifying the DMG is reachable), and only THEN</p>
-<p>  uploads the appcast to GitHub Releases as the bridging mirror.</p>]]></description>
+<p>  clients fetch this version directly from GH Pages via the baked-in</p>
+<p>  <code>SUFeedURL</code>, no GitHub Releases bridging involved.</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.006.dmg"
-                length="12986636"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.007.dmg"
+                length="12986415"
                 type="application/octet-stream"
-                sparkle:edSignature="mz3Yi2laW+I7u6+TiQ1oDorVA3HGb+doPmKuz5I+rnkj2BmcifqL3KUjaFjshwUu97/IimDhfJBIVs/esZ1jDw==" />
+                sparkle:edSignature="jFWcJb5g2U/4aMKT1pnfDMpT4SOvlEGgx6ARldK9Veic3VtaBZT4KXfoaD/OIQe3cVlEk3eNITgHvnxFYWDjBw==" />
         </item>
     </channel>
 </rss>
