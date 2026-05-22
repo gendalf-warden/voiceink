@@ -2,27 +2,28 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
         <title>VoiceInk</title>
-        <link>https://github.com/gendalf-warden/voiceink</link>
+        <link>https://gendalf-warden.github.io/voiceink/</link>
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
             <title>Version 0.5.005</title>
-            <pubDate>Fri, 22 May 2026 21:28:26 +0000</pubDate>
+            <pubDate>Fri, 22 May 2026 21:31:00 +0000</pubDate>
             <sparkle:version>0.5.005</sparkle:version>
             <sparkle:shortVersionString>0.5.005</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://github.com/gendalf-warden/voiceink/releases/tag/v0.5.005</sparkle:releaseNotesLink>
             <description><![CDATA[
-### Fixed
-- **Sparkle update dialog opening behind the active app**: for an
-  accessory (menu-bar) app, clicking «Check for Updates…» didn't bring the
-  process to the front, so the modal Sparkle alert appeared behind Safari /
-  Chrome / whatever else was focused — the user thought the menu item did
-  nothing. `UpdateController` now implements `SPUStandardUserDriverDelegate`
-  and forces `NSApp.activate(ignoringOtherApps:)` from
-  `standardUserDriverWillShowModalAlert()`, which Sparkle calls right before
-  presenting any modal. Belt-and-braces: we also activate immediately when
-  the user clicks the menu item, before the network round-trip starts.]]></description>
+<h3>Fixed</h3>
+<ul>
+  <li><strong>Sparkle update dialog opening behind the active app</strong>: for an</li>
+</ul>
+<p>  accessory (menu-bar) app, clicking «Check for Updates…» didn&#x27;t bring the</p>
+<p>  process to the front, so the modal Sparkle alert appeared behind Safari /</p>
+<p>  Chrome / whatever else was focused — the user thought the menu item did</p>
+<p>  nothing. <code>UpdateController</code> now implements <code>SPUStandardUserDriverDelegate</code></p>
+<p>  and forces <code>NSApp.activate(ignoringOtherApps:)</code> from</p>
+<p>  <code>standardUserDriverWillShowModalAlert()</code>, which Sparkle calls right before</p>
+<p>  presenting any modal. Belt-and-braces: we also activate immediately when</p>
+<p>  the user clicks the menu item, before the network round-trip starts.</p>]]></description>
             <enclosure
                 url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.005.dmg"
                 length="12989825"
