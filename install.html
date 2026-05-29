@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VoiceInk — Installation guide</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; max-width: 680px; margin: 60px auto; padding: 20px; color: #1d1d1f; line-height: 1.55; }
+  a { color: #0066cc; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 32px; margin-bottom: 8px; }
+  .tagline { color: #6e6e73; font-size: 16px; margin-bottom: 16px; }
+  .nav { color: #6e6e73; font-size: 14px; margin-bottom: 40px; }
+  h2 { font-size: 22px; margin-top: 48px; padding-top: 16px; border-top: 1px solid #d2d2d7; }
+  h2 .step { display: inline-block; width: 32px; height: 32px; line-height: 32px; text-align: center; background: #0066cc; color: white; border-radius: 50%; font-size: 16px; margin-right: 10px; vertical-align: middle; }
+  .screenshot { background: #f5f5f7; border: 1px dashed #c7c7cc; border-radius: 8px; padding: 60px 20px; text-align: center; color: #86868b; font-size: 13px; margin: 16px 0; font-family: ui-monospace, "SF Mono", monospace; }
+  .callout { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px 16px; border-radius: 6px; margin: 16px 0; font-size: 14px; }
+  .callout-blue { background: #e7f1fc; border-left-color: #0066cc; }
+  code { background: #f5f5f7; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .troubleshoot { background: #f5f5f7; padding: 16px 20px; border-radius: 8px; margin-top: 12px; }
+  .troubleshoot summary { cursor: pointer; font-weight: 500; }
+  .footer { margin-top: 72px; padding-top: 24px; border-top: 1px solid #d2d2d7; color: #86868b; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Installing VoiceInk</h1>
+<p class="tagline">First-time setup, five minutes total.</p>
+<p class="nav"><a href="./">← Back to download</a></p>
+
+<div class="callout callout-blue">
+<strong>What to expect:</strong> macOS will warn you twice — once because the app was downloaded from the Internet, and once when it asks for permission to listen to your microphone and watch your keyboard. Both are normal. Click through, and you'll be dictating within five minutes.
+</div>
+
+<h2><span class="step">1</span>Download</h2>
+<p>On the <a href="./">home page</a>, click <strong>Download VoiceInk</strong>. Safari (or Chrome / Firefox) may ask you to confirm the download — allow it.</p>
+
+<div class="screenshot">[screenshot: Safari download confirmation dialog]</div>
+
+<p>The file is named <code>VoiceInk-X.Y.ZZZ.dmg</code> (around 13 MB). Open it from your Downloads folder.</p>
+
+<h2><span class="step">2</span>Drag to Applications</h2>
+<p>The DMG opens a window with the VoiceInk icon on the left and an Applications folder shortcut on the right. Drag the icon onto the Applications folder.</p>
+
+<div class="screenshot">[screenshot: DMG drag-to-Applications window]</div>
+
+<p>Eject the DMG once the copy is done (right-click on it in Finder → Eject).</p>
+
+<h2><span class="step">3</span>First launch — Gatekeeper warning</h2>
+<p>Open <strong>Applications</strong> → double-click <strong>VoiceInk</strong>. macOS will show a warning that the app was downloaded from the Internet:</p>
+
+<div class="screenshot">[screenshot: macOS "downloaded from Internet" dialog with Open button]</div>
+
+<p>Click <strong>Open</strong>. This warning appears only the first time you launch any app from outside the App Store — even though VoiceInk is signed and notarized by Apple, the system still asks for explicit consent. You won't see it again.</p>
+
+<div class="callout">
+<strong>If you see a different dialog</strong> saying VoiceInk "cannot be opened because the developer cannot be verified" or "is damaged" — you have an older or unsigned build. Re-download from the <a href="./">home page</a> to get the current notarized version.
+</div>
+
+<h2><span class="step">4</span>Grant Microphone access</h2>
+<p>VoiceInk needs your microphone to hear what you're dictating. macOS will ask once:</p>
+
+<div class="screenshot">[screenshot: macOS microphone permission dialog]</div>
+
+<p>Click <strong>Allow</strong>. If you accidentally clicked Don't Allow, you can fix it later in <strong>System Settings → Privacy &amp; Security → Microphone → VoiceInk</strong>.</p>
+
+<h2><span class="step">5</span>Grant Accessibility access</h2>
+<p>VoiceInk needs Accessibility permission to listen for the Fn key from anywhere and to paste text into the focused window. macOS opens System Settings to the right page:</p>
+
+<div class="screenshot">[screenshot: System Settings → Privacy & Security → Accessibility with VoiceInk toggle]</div>
+
+<p>Flip the toggle next to <strong>VoiceInk</strong>. You may need to enter your password. Close System Settings — VoiceInk picks up the change within two seconds, no restart needed.</p>
+
+<h2><span class="step">6</span>Find the icon in your menu bar</h2>
+<p>VoiceInk lives in the menu bar (top right of your screen, next to the clock and battery). Look for the microphone icon:</p>
+
+<div class="screenshot">[screenshot: menu bar with VoiceInk microphone icon highlighted]</div>
+
+<div class="callout">
+<strong>Don't see it?</strong> On MacBook Air and MacBook Pro 14"/16", the camera notch can hide menu bar items. Hold <kbd>Cmd</kbd> and drag any menu bar icon to rearrange — drag VoiceInk to a visible position. macOS remembers your placement next time.
+</div>
+
+<h2><span class="step">7</span>Try dictating</h2>
+<p>Open any text field — a Slack message, a Notes app, your email draft. Then:</p>
+
+<ul>
+  <li>Hold the <kbd>Fn</kbd> key (bottom-left of your keyboard)</li>
+  <li>Speak naturally — full sentences work best</li>
+  <li>Release <kbd>Fn</kbd></li>
+</ul>
+
+<p>The text appears at the cursor a second later, punctuated and clean. The menu bar icon changes color while recording (blue) and transcribing (purple).</p>
+
+<div class="screenshot">[screenshot: menu bar icon animation states + dictated text in a Notes window]</div>
+
+<p>That's it. The first time you dictate, VoiceInk may take 5-10 seconds to warm up — subsequent dictations are near-instant.</p>
+
+<h2>Troubleshooting</h2>
+
+<details class="troubleshoot">
+<summary>Menu bar icon never appears</summary>
+<p>Check that VoiceInk is actually running: <kbd>Cmd</kbd>+<kbd>Space</kbd> → type "Activity Monitor" → look for <code>voiceink</code>. If it's there, the icon is just hidden behind the camera notch — see step 6.</p>
+<p>If the process isn't running, re-launch from Applications. If it crashes immediately, send us the crash report from <code>~/Library/Logs/DiagnosticReports/</code>.</p>
+</details>
+
+<details class="troubleshoot">
+<summary>Holding Fn doesn't record anything</summary>
+<p>This means Accessibility permission isn't granted (step 5). Open <strong>System Settings → Privacy &amp; Security → Accessibility</strong> and confirm the toggle next to VoiceInk is on. If the toggle is already on, turn it off and on again — sometimes macOS needs a nudge.</p>
+</details>
+
+<details class="troubleshoot">
+<summary>Dictation works but text doesn't paste</summary>
+<p>Same as above — Accessibility permission. VoiceInk uses Accessibility to simulate <kbd>Cmd</kbd>+<kbd>V</kbd>.</p>
+</details>
+
+<details class="troubleshoot">
+<summary>First launch downloads ~3.5 GB of models</summary>
+<p>That's expected. VoiceInk runs everything locally — no cloud — so it needs to bundle the speech-recognition and punctuation models. The download happens once. After that, VoiceInk works offline.</p>
+</details>
+
+<details class="troubleshoot">
+<summary>Log files</summary>
+<p>If something is wrong and you want to share logs: <code>~/.config/voiceink/voiceink.log</code></p>
+</details>
+
+<div class="footer">
+<p>VoiceInk · macOS 13+ · Apple Silicon · <a href="./">Back to download</a></p>
+</div>
+
+</body>
+</html>
