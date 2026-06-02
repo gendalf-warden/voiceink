@@ -34,11 +34,11 @@
 <body>
 
 <h1>Installing VoiceInk</h1>
-<p class="tagline">First-time setup on macOS Sequoia (15+). About 5 minutes plus the model download.</p>
+<p class="tagline">First-time setup. About 5 minutes plus the model download.</p>
 <p class="nav"><a href="./">← Back to download</a></p>
 
 <div class="callout callout-blue">
-<strong>What to expect.</strong> macOS will block VoiceInk on the first launch (this is normal for any app not from the App Store, even when signed and notarized by Apple). You'll bypass the block in System Settings, then grant Microphone and Accessibility permissions, then VoiceInk downloads its speech-recognition models (~3.5 GB). The block bypass only happens once.
+<strong>What to expect.</strong> On first launch macOS will ask you to confirm you really want to open the app (it was downloaded from the Internet — standard for anything outside the App Store). Click Open. Then VoiceInk asks for Microphone and Accessibility permissions, then downloads its speech-recognition models (~3.5 GB).
 </div>
 
 <h2><span class="step">1</span>Download</h2>
@@ -55,30 +55,18 @@
 
 <p>When the copy finishes, eject the DMG (right-click on it in Finder → Eject).</p>
 
-<h2><span class="step">3</span>First launch — macOS blocks the app</h2>
-<p>Open <strong>Applications</strong> in Finder, then double-click <strong>VoiceInk</strong>. macOS Sequoia will show a blocking dialog:</p>
+<h2><span class="step">3</span>First launch — confirm you want to open it</h2>
+<p>Open <strong>Applications</strong> in Finder, then double-click <strong>VoiceInk</strong>. macOS shows a single confirmation:</p>
 
-<img class="shot narrow" src="screenshots/03-gatekeeper-blocked.png" alt="macOS dialog: VoiceInk Not Opened — Apple could not verify VoiceInk is free of malware. Buttons: Done and Move to Trash">
+<img class="shot narrow" src="screenshots/03-friendly-launch.png" alt="macOS dialog: VoiceInk is an app downloaded from the Internet. Safari downloaded this file today. Apple checked it for malicious software and none was detected. Buttons: Cancel and Open">
 
-<div class="callout">
-<strong>This is normal.</strong> Apple's Gatekeeper blocks every app on first launch that wasn't installed through the App Store, regardless of whether it's signed or notarized. Click <strong>Done</strong> — <em>not</em> Move to Trash. We'll allow the app from System Settings in the next step.
+<p>Click <strong>Open</strong>. You won't see this dialog again on this Mac.</p>
+
+<div class="callout callout-blue">
+<strong>Why does macOS ask?</strong> Apps that didn't come from the Mac App Store get a one-time confirmation on first launch. VoiceInk is signed by an Apple-issued Developer ID and was notarized by Apple — the dialog itself confirms "Apple checked it for malicious software and none was detected" — so this is just an extra safety prompt, not a warning.
 </div>
 
-<h2><span class="step">4</span>Open System Settings → Privacy &amp; Security</h2>
-<p>Open <strong>System Settings</strong> (Apple menu → System Settings), then click <strong>Privacy &amp; Security</strong> in the sidebar. Scroll down to the <strong>Security</strong> section — you'll see a line saying <em>"VoiceInk" was blocked to protect your Mac</em>, with an <strong>Open Anyway</strong> button next to it:</p>
-
-<img class="shot" src="screenshots/04-privacy-security.png" alt="System Settings → Privacy & Security panel, showing VoiceInk blocked message and Open Anyway button">
-
-<p>Click <strong>Open Anyway</strong>. macOS will ask for your password.</p>
-
-<h2><span class="step">5</span>Confirm — Open Anyway</h2>
-<p>One more confirmation dialog appears. This time the <strong>Open Anyway</strong> button is enabled:</p>
-
-<img class="shot narrow" src="screenshots/05-open-anyway.png" alt="macOS dialog: Open VoiceInk? — Move to Trash, Open Anyway, Done">
-
-<p>Click <strong>Open Anyway</strong>. VoiceInk launches. You won't see these Gatekeeper dialogs again on this Mac.</p>
-
-<h2><span class="step">6</span>Welcome to VoiceInk — grant permissions</h2>
+<h2><span class="step">4</span>Welcome to VoiceInk — grant permissions</h2>
 <p>On first launch VoiceInk shows a welcome window asking for two permissions:</p>
 
 <img class="shot medium" src="screenshots/06-welcome-wizard.png" alt="VoiceInk welcome window: Microphone (Grant) and Accessibility (Grant) permission rows">
@@ -105,7 +93,7 @@
 <strong>Why both permissions?</strong> <strong>Microphone</strong> lets VoiceInk hear what you're dictating. <strong>Accessibility</strong> lets it (a) detect the Fn key from any app you're in and (b) paste the transcribed text into the focused window. Without both, dictation can't work.
 </div>
 
-<h2><span class="step">7</span>Wait for the models to download</h2>
+<h2><span class="step">5</span>Wait for the models to download</h2>
 <p>VoiceInk runs everything locally — no cloud — so on first launch it downloads the speech-recognition and punctuation models (~3.5 GB total). Progress is shown:</p>
 
 <img class="shot medium" src="screenshots/10-download-models.png" alt="VoiceInk Downloading Models dialog with progress bars for Speech recognition, GPU acceleration, and Smart punctuation & translation">
@@ -119,7 +107,7 @@
 
 <p>You can keep using your Mac while this downloads. Once complete, VoiceInk is ready and the menu bar icon turns from loading state to the microphone icon.</p>
 
-<h2><span class="step">8</span>Find the icon in your menu bar</h2>
+<h2><span class="step">6</span>Find the icon in your menu bar</h2>
 <p>VoiceInk lives in the menu bar (top right of your screen, next to the clock and battery). Look for the microphone icon:</p>
 
 <img class="shot" src="screenshots/11-menubar-icon.png" alt="VoiceInk microphone icon in the macOS menu bar" style="max-width: 200px;">
@@ -128,7 +116,7 @@
 <strong>Don't see it?</strong> On MacBook Air and MacBook Pro 14"/16" the camera notch can hide menu bar items. Hold <kbd>Cmd</kbd> and drag any menu bar icon to rearrange — drag VoiceInk to a visible position. macOS remembers your placement on the next launch.
 </div>
 
-<h2><span class="step">9</span>Try dictating</h2>
+<h2><span class="step">7</span>Try dictating</h2>
 <p>Open any text field — a Slack message, Notes, an email draft. Then:</p>
 
 <ul>
@@ -146,13 +134,15 @@
 <h2>Troubleshooting</h2>
 
 <details class="troubleshoot">
-<summary>The "Move to Trash" button is the default — am I sure I should click "Done"?</summary>
-<p>Yes. The Gatekeeper dialog makes "Move to Trash" the default because Apple's strict assumption is that any unverified app is suspicious. VoiceInk is signed by a Developer ID and notarized by Apple — your Mac just hasn't checked the notarization ticket against Apple's servers yet, which is the normal first-launch flow. Click Done, go to System Settings → Privacy &amp; Security → Open Anyway (step 4), and you're set.</p>
-</details>
-
-<details class="troubleshoot">
-<summary>I don't see "Open Anyway" in Privacy &amp; Security</summary>
-<p>The Open Anyway button only appears within about an hour of the blocked launch attempt. If you waited too long, just open VoiceInk from Applications again — the Gatekeeper dialog will reappear, and Open Anyway will show up in Privacy &amp; Security again.</p>
+<summary>I see "Apple could not verify VoiceInk" with Done / Move to Trash — different from the screenshot</summary>
+<p>You're probably on an older VoiceInk build (pre-0.5.010) or an older macOS where Gatekeeper was stricter. To bypass:</p>
+<ol>
+  <li>Click <strong>Done</strong> — <em>not</em> Move to Trash.</li>
+  <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll to the <strong>Security</strong> section.</li>
+  <li>You'll see <em>"VoiceInk" was blocked to protect your Mac</em> with an <strong>Open Anyway</strong> button. Click it, enter your password.</li>
+  <li>A second confirmation dialog appears — click <strong>Open Anyway</strong> again. VoiceInk launches.</li>
+</ol>
+<p>To avoid this in the future, <a href="./">download the current version</a> (≥0.5.010) which shows the friendly one-click dialog.</p>
 </details>
 
 <details class="troubleshoot">
