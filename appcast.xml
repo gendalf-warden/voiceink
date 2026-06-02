@@ -6,82 +6,34 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.008</title>
-            <pubDate>Sun, 31 May 2026 21:09:17 +0000</pubDate>
-            <sparkle:version>0.5.008</sparkle:version>
-            <sparkle:shortVersionString>0.5.008</sparkle:shortVersionString>
+            <title>Version 0.5.009</title>
+            <pubDate>Tue, 02 Jun 2026 11:02:52 +0000</pubDate>
+            <sparkle:version>0.5.009</sparkle:version>
+            <sparkle:shortVersionString>0.5.009</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
-<p>Two production bugs reported on an 8 GB Mac under heavy daily dictation use:</p>
-<p>whisper-server orphans piling up between sessions, and the post-dictation</p>
-<p>clipboard restore racing with the paste so that the previous clipboard</p>
-<p>contents were pasted instead of the transcription. The two compound — orphans</p>
-<p>caused memory pressure → the paste race tripped more often.</p>
-
 <h3>Fixed</h3>
 <ul>
-  <li><strong>Orphaned whisper-server / llama-server processes</strong> (<code>Sources/VoiceInkLib/ProcessHygiene.swift</code>,</li>
+  <li><strong>Gatekeeper &quot;Apple could not verify&quot; dialog on first launch</strong>: brand-new</li>
 </ul>
-<p>  hooked from <code>AppDelegate.applicationDidFinishLaunching</code> and</p>
-<p>  <code>startLLMSync</code>). Cleanup previously lived only in <code>shutdown()</code>, wired to the</p>
-<p>  Quit menu item. Every other exit path — SIGTERM/SIGINT at logout, the</p>
-<p>  Settings → Uninstall flow, the model-download cancel button, crashes, jetsam</p>
-<p>  OOM-kills — reparented child processes to launchd and left them holding</p>
-<p>  ~600 MB each. Worse: an orphan still bound to <code>:8178</code> continued returning</p>
-<p>  HTTP 200 to <code>waitForServer()</code>, so the freshly spawned whisper-server failed</p>
-<p>  to bind silently and the app drove the stale orphan. Two-part fix:</p>
-<ul>
-  <li><strong><code>ProcessHygiene.killOrphans()</code></strong> runs at app launch BEFORE</li>
-</ul>
-<p>    <code>Transcriber.startServer()</code> / <code>LlamaClient.startServer()</code>. It matches by</p>
-<p>    bundled executable path (so a homebrew or system <code>whisper-server</code> is</p>
-<p>    untouched) and cross-checks <code>lsof :8178</code> / <code>:8179</code> to catch processes the</p>
-<p>    path match misses. SIGKILL — orphans are already untracked.</p>
-<ul>
-  <li><strong><code>AppDelegate.applicationWillTerminate(_:)</code></strong> now calls <code>shutdown()</code>,</li>
-</ul>
-<p>    closing the SIGTERM/SIGINT and Settings-uninstall paths. <code>shutdown()</code> is</p>
-<p>    idempotent (guarded by <code>didShutdown</code>) so the Quit menu + this hook</p>
-<p>    can&#x27;t double-stop.</p>
-<ul>
-  <li><strong>Clipboard race in <code>TextInserter.insert</code></strong> (<code>Sources/VoiceInkLib/TextInserter.swift</code>).</li>
-</ul>
-<p>  Previously: save <code>.string</code>, write dictation, fire Cmd+V, restore after</p>
-<p>  <strong>150 ms hard-coded delay</strong>. Under memory pressure or in heavy apps the</p>
-<p>  target hadn&#x27;t consumed the paste yet, so the restore won the race and the</p>
-<p>  app pasted the old clipboard. Also, only <code>.string</code> was preserved —</p>
-<p>  images / RTF / file URLs on the clipboard were destroyed. Three fixes:</p>
-<ul>
-  <li>Snapshot ALL pasteboard items and ALL types (not just <code>.string</code>); restore</li>
-</ul>
-<p>    them all on the round-trip.</p>
-<ul>
-  <li>Delay raised 150 ms → <strong>600 ms</strong>, comfortably above the practical paste</li>
-</ul>
-<p>    window for every app we&#x27;ve seen.</p>
-<ul>
-  <li>Skip the restore entirely if <code>NSPasteboard.changeCount</code> rose between our</li>
-</ul>
-<p>    write and the restore deadline (the user pressed Cmd+C in the target app</p>
-<p>    after dictation; clobbering their fresh copy would be worse than leaving</p>
-<p>    our dictated text on the clipboard).</p>
-
-<h3>Internal</h3>
-<ul>
-  <li><code>ProcessHygiene.parseOrphanPIDs</code> is a pure function with 9 unit tests</li>
-</ul>
-<p>  covering exact path matches, multiple orphans, own-PID safety,</p>
-<p>  homebrew/system binaries with the same filename, prefix-substring</p>
-<p>  rejection, leading whitespace in <code>ps</code> output, and malformed lines.</p>
-<ul>
-  <li><code>TextInserter.shouldRestoreClipboard</code> is a pure function with 4 unit tests</li>
-</ul>
-<p>  covering the changeCount comparator.</p>]]></description>
+<p>  installs from the DMG showed the restrictive macOS 15 dialog (&quot;Done / Move</p>
+<p>  to Trash&quot; → System Settings → Open Anyway) instead of the friendly</p>
+<p>  &quot;downloaded from Internet — Open?&quot; prompt that every well-notarized macOS</p>
+<p>  app gets. Despite <code>xcrun stapler validate</code> passing and <code>spctl</code> accepting,</p>
+<p>  <code>codesign --verify --deep --strict</code> flagged a &quot;Disallowed xattr</p>
+<p>  com.apple.FinderInfo&quot; on <code>Sparkle.framework/.../Updater.app</code>. The xattr was</p>
+<p>  inherited from the SPM artefact in iCloud Drive (which decorates every file</p>
+<p>  it touches with <code>com.apple.FinderInfo</code> and friends) and survived the</p>
+<p>  <code>xattr -cr</code> sweep because some system xattrs ignore <code>-c</code>. <code>build-app.sh</code> now</p>
+<p>  copies the framework with <code>ditto --noextattr --noacl</code> (skips xattrs at the</p>
+<p>  source) and follows up with a per-file <code>xattr -c</code> via <code>find -exec</code>. Result:</p>
+<p>  <code>codesign --verify --strict</code> is clean, and Gatekeeper shows the friendly</p>
+<p>  first-launch dialog.</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.008.dmg"
-                length="12978704"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.009.dmg"
+                length="12978771"
                 type="application/octet-stream"
-                sparkle:edSignature="Sx9v7TuAJz7Zwun7ikm/UJh1QcZpiYJZBtZ0kfLLQD4qM8M4noTu3BudysYBvYQnSJsujkjnFhcaimc0WQlmBQ==" />
+                sparkle:edSignature="NJvG4rxZm4/Z7b+zxCGu+7syIjnfgGUA/4X1QOLBgL/vFOEU++dSav/4q4NJloyi/G/g5VmApyiZDMe+BbznAA==" />
         </item>
     </channel>
 </rss>
