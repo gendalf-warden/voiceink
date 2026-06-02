@@ -6,34 +6,31 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.009</title>
-            <pubDate>Tue, 02 Jun 2026 11:02:52 +0000</pubDate>
-            <sparkle:version>0.5.009</sparkle:version>
-            <sparkle:shortVersionString>0.5.009</sparkle:shortVersionString>
+            <title>Version 0.5.010</title>
+            <pubDate>Tue, 02 Jun 2026 11:25:21 +0000</pubDate>
+            <sparkle:version>0.5.010</sparkle:version>
+            <sparkle:shortVersionString>0.5.010</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
 <h3>Fixed</h3>
 <ul>
-  <li><strong>Gatekeeper &quot;Apple could not verify&quot; dialog on first launch</strong>: brand-new</li>
+  <li><strong>Unfriendly Gatekeeper first-launch dialog (continued from 0.5.009)</strong>: despite</li>
 </ul>
-<p>  installs from the DMG showed the restrictive macOS 15 dialog (&quot;Done / Move</p>
-<p>  to Trash&quot; → System Settings → Open Anyway) instead of the friendly</p>
-<p>  &quot;downloaded from Internet — Open?&quot; prompt that every well-notarized macOS</p>
-<p>  app gets. Despite <code>xcrun stapler validate</code> passing and <code>spctl</code> accepting,</p>
-<p>  <code>codesign --verify --deep --strict</code> flagged a &quot;Disallowed xattr</p>
-<p>  com.apple.FinderInfo&quot; on <code>Sparkle.framework/.../Updater.app</code>. The xattr was</p>
-<p>  inherited from the SPM artefact in iCloud Drive (which decorates every file</p>
-<p>  it touches with <code>com.apple.FinderInfo</code> and friends) and survived the</p>
-<p>  <code>xattr -cr</code> sweep because some system xattrs ignore <code>-c</code>. <code>build-app.sh</code> now</p>
-<p>  copies the framework with <code>ditto --noextattr --noacl</code> (skips xattrs at the</p>
-<p>  source) and follows up with a per-file <code>xattr -c</code> via <code>find -exec</code>. Result:</p>
-<p>  <code>codesign --verify --strict</code> is clean, and Gatekeeper shows the friendly</p>
-<p>  first-launch dialog.</p>]]></description>
+<p>  passing <code>codesign --verify --deep --strict</code> cleanly and being fully notarized</p>
+<p>  + stapled, the app still showed &quot;Apple could not verify VoiceInk is free of</p>
+<p>  malware. Done / Move to Trash&quot; on macOS 15 instead of the friendly &quot;App</p>
+<p>  downloaded from Internet — Open?&quot;. Hypothesis: macOS 15&#x27;s Gatekeeper folds</p>
+<p>  the <code>com.apple.security.cs.disable-library-validation</code> entitlement into its</p>
+<p>  first-launch risk assessment. We removed that entitlement — all bundled</p>
+<p>  dylibs / .so / Sparkle.framework internals are re-signed by <code>build-app.sh</code></p>
+<p>  with our Developer ID (Team 94QK2GK5GT), so library validation succeeds</p>
+<p>  natively without the disable flag. The entitlement was a relic from when we</p>
+<p>  shipped homebrew-signed libs without re-signing them.</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.009.dmg"
-                length="12978771"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.010.dmg"
+                length="12979910"
                 type="application/octet-stream"
-                sparkle:edSignature="NJvG4rxZm4/Z7b+zxCGu+7syIjnfgGUA/4X1QOLBgL/vFOEU++dSav/4q4NJloyi/G/g5VmApyiZDMe+BbznAA==" />
+                sparkle:edSignature="nKo5rbau/v9eiFoRneBGpuef+1f3H4Gj5WXqdpLW6OPBXcJF2gDwr7pBmP4Zz97bGV2xtN0KNmJrSxZ/9pEeCg==" />
         </item>
     </channel>
 </rss>
