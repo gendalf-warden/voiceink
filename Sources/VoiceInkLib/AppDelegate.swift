@@ -17,6 +17,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var fileTranscriptionManager: FileTranscriptionManager?
     private var firstRunWindow: FirstRunWindowController?
     private var downloadWindow: ModelDownloadWindowController?
+    /// Sparkle auto-updater wrapper. Must be retained (Sparkle holds weak refs internally).
+    private var updateController: UpdateController?
     private var history: [(date: Date, text: String)] = []
     private let maxHistory = 10
     private var recordingStartTime: Date?
@@ -118,6 +120,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.onOpenReplacements = { [weak self] in
             self?.openReplacements()
         }
+        statusBar.onCheckUpdates = { [weak self] in
+            self?.updateController?.checkForUpdates()
+        }
+        // Initialize Sparkle. Configuration (feed URL, public key, automatic-checks flag)
+        // lives in Info.plist — keys are written by build-app.sh.
+        updateController = UpdateController()
         statusBar.onModeChange = { [weak self] forFile, mode in
             guard let self = self else { return }
             // Build the new config WITHOUT mutating self.config — applyConfig
@@ -142,6 +150,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             // Milestone 1: Whisper server
             DispatchQueue.main.async { self.splash?.setMilestone(1) }
             self.transcriber = Transcriber(config: self.config)
+            // Sweep orphaned children from previous sessions BEFORE binding :8178.
+            // See ProcessHygiene.swift for why this exists (non-Quit exit paths
+            // reparent children to launchd → ~600 MB each leaks per session).
+            self.transcriber.killOrphanedServersAtLaunch()
             do {
                 try self.transcriber.startServer()
                 self.serverAvailable = self.transcriber.isServerRunning
@@ -206,9 +218,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Shutdown
 
+    /// True once shutdown() has run, so termination paths that fire it twice
+    /// (Quit menu item + applicationWillTerminate) don't double-stop servers.
+    private var didShutdown = false
+
+    /// Centralized cleanup. Called from:
+    /// 1. Quit menu item (StatusBarController → onQuit closure)
+    /// 2. `applicationWillTerminate(_:)` — covers SIGTERM/SIGINT, the
+    ///    Settings → Uninstall → terminate(nil) path, the model-download
+    ///    cancel terminate(nil) path, and any other code that calls
+    ///    NSApplication.terminate(nil).
+    ///
+    /// Crashes / SIGKILL / jetsam OOM can't run this — that's what
+    /// `Transcriber.killOrphanedServersAtLaunch()` covers, swept at the next
+    /// app launch.
     private func shutdown() {
-        hotkeyManager.stop()
-        transcriber.stopServer()
+        guard !didShutdown else { return }
+        didShutdown = true
+        hotkeyManager?.stop()
+        transcriber?.stopServer()
         llamaClient?.stopServer()
 
         // Unload LLM from VRAM
@@ -221,6 +249,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             // Wait up to 5s for unload
             _ = semaphore.wait(timeout: .now() + 5)
         }
+    }
+
+    public func applicationWillTerminate(_ notification: Notification) {
+        shutdown()
     }
 
     // MARK: - Recording pipeline
@@ -365,6 +397,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private func startLLMSync() {
         if config.llamaAvailable {
             llamaClient = LlamaClient(serverPath: config.llamaServerPath, modelPath: config.llamaModelPath)
+            // Sweep orphans from previous sessions before binding :8179.
+            llamaClient!.killOrphanedServersAtLaunch()
             do {
                 try llamaClient!.startServer()
                 log("Bundled LLM server started")
@@ -436,6 +470,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         manager.mode = config.fileMode
         manager.translateTarget = config.translateTarget
         manager.replacements = config.replacements
+        // Auto-tune for low-RAM machines: avoid simultaneous whisper inferences,
+        // and don't keep whisper + llama working sets active at the same time.
+        let lowRAM = Config.systemRAMGB <= 8
+        manager.concurrency = lowRAM ? 1 : 2
+        manager.lowMemoryMode = lowRAM
+        if lowRAM {
+            log("Low-RAM mode (\(Config.systemRAMGB) GB): concurrency=1, sequential ASR→LLM phases", tag: "FileTranscription")
+        }
         manager.onLLMNeeded = { [weak self] in
             await self?.ensureLLMReady() ?? false
         }
