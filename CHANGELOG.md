@@ -30,6 +30,17 @@ logged verbatim; real dictated text stays behind the `logTranscriptions` opt-in.
 - **Redacted transcription signature**: `[N chars, M words]` instead of bare
   `[N chars]` when full-text logging is off.
 
+### Fixed — build warnings (0-warnings gate)
+- Cleared all 6 pre-existing `#SendableClosureCaptures` warnings so `develop`
+  passes CLAUDE.md's "swift build — 0 warnings" gate on a *clean* build
+  (`rm -rf .build && swift build`). `AppDelegate` error-tail now uses
+  `Task.sleep` + `MainActor.run` instead of a `@Sendable`
+  `DispatchQueue.asyncAfter` closure; `AudioConverter`'s `requestMediaDataWhenReady`
+  callback (which runs serially on a dedicated queue) rebinds its AVFoundation
+  objects `nonisolated(unsafe)`. No behavior change. (Note: only 2 showed in
+  incremental builds — the other 4 in `AudioConverter` only surface on a clean
+  build because that file isn't otherwise recompiled.)
+
 ## [0.5.012] - 2026-06-06
 
 ### Fixed
