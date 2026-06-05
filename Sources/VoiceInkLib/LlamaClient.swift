@@ -42,12 +42,13 @@ public class LlamaClient: LLMProcessor {
             "-ngl", "99",        // offload all layers to GPU
             "-t", "4",
         ]
-        // ggml backend plugins (.so) are in lib-llama/ next to llama-server
-        let serverDir = (serverPath as NSString).deletingLastPathComponent
-        let backendPath = (serverDir as NSString).appendingPathComponent("lib-llama")
-        var env = ProcessInfo.processInfo.environment
-        env["GGML_BACKEND_PATH"] = backendPath
-        process.environment = env
+        // ggml (0.9.11+) discovers backend plugins (.so) by searching the directory
+        // that contains llama-server (Resources/), where build-app.sh now places
+        // them. We deliberately do NOT set GGML_BACKEND_PATH: in this ggml version
+        // it dlopen's a single explicit file, not a directory, so pointing it at a
+        // folder silently loaded nothing on machines without homebrew →
+        // "no backends are loaded". See CLAUDE.md "Решённые баги".
+        process.environment = ProcessInfo.processInfo.environment
 
         let stderrPipe = Pipe()
         process.standardOutput = FileHandle.nullDevice

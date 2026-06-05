@@ -391,9 +391,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 await MainActor.run {
                     self.state = .error(error.localizedDescription)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        if case .error = self.state { self.state = .idle }
-                    }
+                }
+                // Reset .error → .idle after 3s. Use Task.sleep + MainActor.run (a
+                // @MainActor, non-Sendable closure) instead of DispatchQueue.asyncAfter,
+                // whose @Sendable closure would capture non-Sendable self (warning).
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await MainActor.run {
+                    if case .error = self.state { self.state = .idle }
                 }
             }
         }

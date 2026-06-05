@@ -4,7 +4,7 @@
 
 **Расположение**: `/Users/dima/CLAUDE PROJECTS/VoiceInk` (вынесен из iCloud Drive 2026-06 — см. «Важные технические детали»). Бэкап = GitHub `gendalf-warden/voiceink`, НЕ iCloud.
 
-Текущая версия: см. файл `VERSION` (на момент написания — `0.5.011`).
+Текущая версия: см. файл `VERSION` (на момент написания — `0.5.012`).
 
 ## Сборка
 
@@ -185,12 +185,14 @@ open VoiceInk.app        # запуск бандла
 - `AudioRecorder.isSilent(url:)`: пик амплитуды по всему файлу ниже speech-floor (0.01) → запись тишины, `AppDelegate` дропает до транскрипции.
 - `Transcriber.removeHallucinations()`: добавлены standalone-only фразы (`thank you`, `thanks`, `bye`, `спасибо`…, не вырезаются в середине предложения), `isRepeatedWordLoop()` (один короткий токен ≥3× = петля повторов), и RU «спасибо за просмотр».
 
-### Bundled llama-server "no backends are loaded" на машине пользователя (НЕ исправлено, отдельный баг)
-**Симптом**: на машине Анны (и, вероятно, не только) bundled llama-server падает на КАЖДОМ старте — stderr `no backends are loaded` + `fitting params to device memory`, exit 1. → фолбэк на Ollama (не установлена) → LLM post-processing не работает ВООБЩЕ, всегда raw Whisper.
+### Bundled llama-server "no backends are loaded" на машине пользователя (баг #2, исправлено 0.5.012)
+**Симптом**: на машине Анны (и не только) bundled llama-server падал на КАЖДОМ старте — stderr `no backends are loaded` + `fitting params to device memory`, exit 1. → фолбэк на Ollama (не установлена) → LLM post-processing не работал ВООБЩЕ, всегда raw Whisper.
 
-**Класс бага**: тот же «no backends are loaded» что и исторический (GGML_BACKEND_PATH / .so бэкенды), но всплыл заново с более новой версией bundled llama.cpp (отсюда новая строка `fitting params to device memory`, флаг `-fit`). Whisper-server при этом стартует нормально — проблема именно в llama-бандле.
+**Корневая причина**: новый ggml (0.9.11) ищет backend-плагины (`.so`: Metal/CPU/BLAS) двумя способами — (1) relocatable-поиск в директории, где лежит **исполняемый файл** (`llama-server` → `Resources/`), импортирует `__NSGetExecutablePath`; (2) захардкоженный на этапе компиляции абсолютный путь `/opt/homebrew/Cellar/ggml/<ver>/libexec`. При этом `GGML_BACKEND_PATH` делает `dlopen` ОДНОГО конкретного **файла**, а НЕ сканирует директорию. Старая схема (`.so` в `lib-llama/` + `GGML_BACKEND_PATH=lib-llama`) на чистой машине не грузила ничего: Cellar-путь отсутствует, а dir-значение env'а игнорируется (`dlopen(dir)` → «not a file»). На dev-машинах «работало» только потому, что Cellar существует локально.
 
-**Что нужно**: investigation сборки/бандлинга — копируются ли ggml backend `.so` (Metal/CPU/BLAS) + libomp в `lib-llama/` для НОВОЙ версии llama, и резолвится ли `GGML_BACKEND_PATH`. Возможно изменилась структура бэкендов в новом llama.cpp.
+**Фикс (0.5.012)**: `build-app.sh` копирует backend `.so` в `Resources/` РЯДОМ с `llama-server` (их dylib-зависимости — `libggml-base`, `libomp` — остаются в `lib-llama/`, резолвятся через rpath `@loader_path/lib-llama` на самих `.so` + `@executable_path/lib-llama` на `llama-server`). `LlamaClient` больше НЕ ставит dir-значение `GGML_BACKEND_PATH`. Relocatable executable-dir поиск ggml находит бэкенды на любой машине. whisper-server (старее whisper.cpp, без `.so`-плагин-лоадера и без `__NSGetExecutablePath`) эти файлы игнорирует — коллизии версий ggml нет.
+
+**Верификация**: после сборки прогнать `<bundle>/Contents/Resources/llama-server --version` с временно убранным `/opt/homebrew/Cellar/ggml/*/libexec` (или на чистой машине) — в логе должно быть `load_backend: loaded ... from <bundle>/Contents/Resources/libggml-*.so`, НЕ из Cellar.
 
 ## Процесс разработки
 

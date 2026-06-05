@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.012] - 2026-06-06
+
+### Fixed
+- **Bundled llama-server "no backends are loaded" on clean machines** (the
+  known issue flagged in 0.5.011): on a user's Mac the bundled llama-server
+  crashed on every launch (exit 1, `no backends are loaded`), so LLM
+  post-processing silently fell back to Ollama (absent) and every dictation
+  used raw Whisper with no cleanup. Root cause: newer ggml (0.9.11) discovers
+  GPU/CPU/BLAS backend plugins (`.so`) by searching the directory that contains
+  the executable **plus a compile-time-hardcoded homebrew Cellar path**, and
+  `GGML_BACKEND_PATH` dlopen's a single explicit *file*, not a directory. The
+  app shipped the `.so` in `Resources/lib-llama/` and set
+  `GGML_BACKEND_PATH=lib-llama/` (a directory) — so on a machine without
+  homebrew, nothing loaded. It only worked on dev machines because the
+  hardcoded `/opt/homebrew/Cellar/ggml/.../libexec` happened to exist.
+  Fix: `build-app.sh` now copies the backend `.so` files into `Resources/`
+  next to `llama-server` (their dylib deps stay in `lib-llama/`, resolved via
+  an `@loader_path/lib-llama` rpath), and `LlamaClient` no longer sets the
+  bogus directory-valued `GGML_BACKEND_PATH`. ggml's relocatable
+  executable-dir search then finds the backends on any machine. whisper-server
+  (older whisper.cpp, no `.so`-plugin loader) is unaffected.
+
 ## [0.5.011] - 2026-06-06
 
 Phantom text reported by a user (Anna): while editing documents — not dictating
@@ -30,14 +52,9 @@ showed the root-cause chain and three independent fixes.
   Added standalone-only phrase removal (never stripped mid-sentence so
   "…thank you for this." survives) and a repeated-word-loop detector.
 
-### Known issues (not fixed here)
+### Known issues
 - **Bundled llama-server crashes on startup on some machines** (`no backends
-  are loaded`, exit 1) → LLM post-processing silently falls back to Ollama
-  (usually absent) → raw Whisper text is used with no cleanup. Same class as
-  the historical "no backends are loaded" bug but resurfaced with the newer
-  bundled llama.cpp (note the `fitting params to device memory` log line).
-  Needs a build/bundling investigation (`GGML_BACKEND_PATH` / backend `.so`
-  bundling for the new llama version).
+  are loaded`, exit 1) → raw Whisper text with no cleanup. **Fixed in 0.5.012.**
 
 ## [0.5.010] - 2026-06-02
 

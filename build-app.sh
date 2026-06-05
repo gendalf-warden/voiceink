@@ -163,19 +163,32 @@ copy_dylib() {
     fi
 }
 
-# Copy ggml backend plugins (.so) for llama
+# Copy ggml backend plugins (.so) for llama.
+# CRITICAL (see CLAUDE.md "no backends are loaded" #2): newer ggml (0.9.11+)
+# discovers backends via a RELOCATABLE search of the directory containing the
+# executable (llama-server → Resources/) plus a compile-time-hardcoded homebrew
+# Cellar path. GGML_BACKEND_PATH only dlopen's a SINGLE explicit file — it does
+# NOT treat its value as a directory. So the old scheme (".so in lib-llama/" +
+# GGML_BACKEND_PATH=lib-llama) loaded NOTHING on machines without homebrew (the
+# Cellar path is absent) → "no backends are loaded". The .so files must therefore
+# sit NEXT TO llama-server in Resources/. Their dylib deps (libggml-base, libomp)
+# live in lib-llama/ and resolve via the @loader_path/lib-llama rpath added below
+# (and llama-server's @executable_path/lib-llama rpath). whisper-server uses an
+# older whisper.cpp with no .so-plugin loader, so it ignores these files.
 echo "       ggml backend plugins..."
 GGML_LIBEXEC=$(find /opt/homebrew/Cellar/ggml/*/libexec -name "*.so" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
 if [ -n "$GGML_LIBEXEC" ] && [ -d "$GGML_LIBEXEC" ]; then
-    cp "$GGML_LIBEXEC"/*.so "${RESOURCES}/lib-llama/"
-    # Copy libomp (needed by CPU backends)
+    cp "$GGML_LIBEXEC"/*.so "${RESOURCES}/"
+    # Copy libomp (needed by CPU backends) into lib-llama/
     LIBOMP=$(find /opt/homebrew/Cellar/libomp/*/lib/libomp.dylib 2>/dev/null | head -1)
     if [ -n "$LIBOMP" ] && [ -f "$LIBOMP" ]; then
         cp "$(readlink -f "$LIBOMP")" "${RESOURCES}/lib-llama/libomp.dylib"
     fi
-    # Fix dylib deps inside .so backends
-    for so in "${RESOURCES}"/lib-llama/*.so; do
-        install_name_tool -add_rpath @loader_path "${so}" 2>/dev/null || true
+    # Fix dylib deps inside .so backends. The .so live in Resources/ but their
+    # ggml/libomp deps live in lib-llama/, so point @rpath there.
+    for so in "${RESOURCES}"/*.so; do
+        [ -f "$so" ] || continue
+        install_name_tool -add_rpath @loader_path/lib-llama "${so}" 2>/dev/null || true
         otool -L "$so" 2>/dev/null | awk '{print $1}' | while read dep; do
             case "$dep" in
                 /opt/homebrew/*)
@@ -368,8 +381,13 @@ sign_no_ent() {
 for lib in "${RESOURCES}"/lib/*.dylib; do
     sign_one "$lib"
 done
-for lib in "${RESOURCES}"/lib-llama/*.dylib "${RESOURCES}"/lib-llama/*.so; do
+for lib in "${RESOURCES}"/lib-llama/*.dylib; do
     sign_one "$lib"
+done
+# ggml backend plugins now live next to llama-server in Resources/ (relocatable
+# executable-dir discovery) — sign them there.
+for so in "${RESOURCES}"/*.so; do
+    [ -f "$so" ] && sign_one "$so"
 done
 sign_one "${RESOURCES}/whisper-server"
 sign_one "${RESOURCES}/llama-server"
