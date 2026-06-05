@@ -24,7 +24,10 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
     public func show() {
         if let existing = window, existing.isVisible {
             NSApp.showDock()
+            existing.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             existing.makeKeyAndOrderFront(nil)
+            existing.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -42,6 +45,7 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.minSize = NSSize(width: 480, height: 320)
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
 
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         contentView.autoresizingMask = [.width, .height]
@@ -116,6 +120,8 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         self.window = window
         NSApp.showDock()
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     public func setStatus(_ text: String) {
@@ -160,6 +166,43 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Replace the text of an already-appended chunk (matched by `index`).
+    /// Used by low-memory pipeline: Phase 1 streams raw ASR text, Phase 2 replaces
+    /// each chunk's text with the LLM-processed version. No-op if index not found.
+    public func updateChunkText(index: Int, text: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let pos = self.chunks.firstIndex(where: { $0.index == index }) else { return }
+            let old = self.chunks[pos]
+            self.chunks[pos] = FileTranscriptionManager.ChunkResult(
+                index: old.index, startTime: old.startTime, endTime: old.endTime, text: text
+            )
+            self.renderText()
+            self.updateStats()
+        }
+    }
+
+    /// Reset progress bar for a second phase (e.g. LLM post-processing after all ASR is done).
+    /// Status label is left to the caller via setStatus().
+    public func beginPhase(label: String, totalChunks: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.statusLabel?.stringValue = label
+            self.progressBar?.minValue = 0
+            self.progressBar?.maxValue = Double(totalChunks)
+            self.progressBar?.doubleValue = 0
+        }
+    }
+
+    /// Bump progress bar by one (used during phase 2 where chunks are updated in place).
+    public func tickPhaseProgress() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let v = (self.progressBar?.doubleValue ?? 0) + 1
+            self.progressBar?.doubleValue = v
+        }
+    }
+
     public func finishStreaming(totalTime: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -183,6 +226,12 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Diagnostic: indices of chunks that came back empty (no recognized speech).
+    public func emptyChunkIndices() -> [Int] {
+        chunks.filter { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map { $0.index }
+    }
+
+
     public func close() {
         let win = self.window
         self.window = nil
@@ -200,18 +249,25 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         textView?.string = text
     }
 
+    /// A chunk counts as "speech" only if it has at least one non-whitespace character.
+    /// Empty chunks (silence or filtered hallucinations) are hidden from formatted output —
+    /// otherwise the user sees a long tail of `[1:12:34] ` lines for silent stretches.
+    private func nonEmptyChunks() -> [FileTranscriptionManager.ChunkResult] {
+        chunks.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     private func chunksPlainText() -> String {
-        chunks.map { $0.text }.joined(separator: " ")
+        nonEmptyChunks().map { $0.text }.joined(separator: " ")
     }
 
     private func chunksWithTimestamps() -> String {
-        chunks.map { chunk in
+        nonEmptyChunks().map { chunk in
             "[\(formatTime(chunk.startTime))] \(chunk.text)"
         }.joined(separator: "\n")
     }
 
     private func chunksAsSRT() -> String {
-        chunks.enumerated().map { (i, chunk) in
+        nonEmptyChunks().enumerated().map { (i, chunk) in
             """
             \(i + 1)
             \(formatSRTTime(chunk.startTime)) --> \(formatSRTTime(chunk.endTime))
@@ -222,7 +278,7 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
 
     private func chunksAsMarkdown() -> String {
         var out = "# Transcription\n\n"
-        for chunk in chunks {
+        for chunk in nonEmptyChunks() {
             out += "**[\(formatTime(chunk.startTime))]** \(chunk.text)\n\n"
         }
         return out
@@ -253,7 +309,12 @@ public class TranscriptionResultWindowController: NSObject, NSWindowDelegate {
         var parts: [String] = []
         parts.append("\(words) words")
         parts.append("\(chars) chars")
-        parts.append("\(chunks.count)/\(totalChunks) chunks")
+        let emptyCount = chunks.count - nonEmptyChunks().count
+        if emptyCount > 0 {
+            parts.append("\(chunks.count)/\(totalChunks) chunks (\(emptyCount) empty)")
+        } else {
+            parts.append("\(chunks.count)/\(totalChunks) chunks")
+        }
         if totalDuration > 0 {
             parts.append("audio \(formatTime(totalDuration))")
         }
