@@ -11,12 +11,29 @@ public class Transcriber {
         self.config = config
     }
 
-    /// Start whisper-server in background (model stays loaded in memory)
-    public func startServer() throws {
-        // Use whisperServerPath if set, otherwise derive from whisperCliPath
-        let serverPath = !config.whisperServerPath.isEmpty
+    /// Resolve the bundled whisper-server executable path used by this Transcriber.
+    private var resolvedServerPath: String {
+        !config.whisperServerPath.isEmpty
             ? config.whisperServerPath
             : config.whisperCliPath.replacingOccurrences(of: "whisper-cli", with: "whisper-server")
+    }
+
+    /// Kill orphaned whisper-server processes from previous app sessions. Call
+    /// at app launch BEFORE the first `startServer()`. Safe no-op if no orphans.
+    /// MUST NOT be called from in-session restart paths — `restartServer()` has
+    /// its own coordination (NSLock + coalesce window) and would deadlock if
+    /// `kill()` happened mid-flight.
+    public func killOrphanedServersAtLaunch() {
+        ProcessHygiene.killOrphans(
+            executablePath: resolvedServerPath,
+            port: serverPort,
+            label: "whisper-server"
+        )
+    }
+
+    /// Start whisper-server in background (model stays loaded in memory)
+    public func startServer() throws {
+        let serverPath = resolvedServerPath
 
         guard FileManager.default.isExecutableFile(atPath: serverPath) else {
             throw TranscriberError.whisperNotFound(serverPath)
@@ -39,6 +56,14 @@ public class Transcriber {
             "-t", String(threads),
         ]
         args += ["-l", config.language]
+        // B: on ≤8 GB machines, disable flash-attention. Metal flash-attn has known
+        // deadlocks on unified-memory systems with constrained VRAM (ggml-metal
+        // resource-set init enters retry/sleep loop, holds inference mutex,
+        // all subsequent /inference requests block on std::mutex::lock).
+        if Config.systemRAMGB <= 8 {
+            args += ["-nfa"]
+            log("Low-RAM: disabling whisper flash-attention (-nfa) to avoid Metal deadlock", tag: "Transcriber")
+        }
         process.arguments = args
 
         // Capture stderr for diagnostics, suppress stdout
@@ -70,16 +95,157 @@ public class Transcriber {
         }
     }
 
+    /// Stop the server process and WAIT for it to actually exit before returning.
+    /// `process.terminate()` sends SIGTERM but doesn't wait; a Metal-deadlocked whisper-server
+    /// can ignore SIGTERM (its Metal thread is stuck in usleep retry-loop and never returns
+    /// to the signal handler). We give it 3 s, then SIGKILL. Without this, restart() spawns
+    /// a new process while the old one is still alive → 2+ processes accumulate per restart,
+    /// port 8178 collisions, RAM pressure.
     public func stopServer() {
-        serverProcess?.terminate()
+        guard let p = serverProcess else {
+            isServerRunning = false
+            return
+        }
+        let pid = p.processIdentifier
+        p.terminate()
         serverProcess = nil
         isServerRunning = false
-        log("Server stopped", tag: "Transcriber")
+
+        // Wait up to 3 s for graceful exit
+        let deadline = Date().addingTimeInterval(3.0)
+        while p.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if p.isRunning {
+            log("SIGTERM ignored — sending SIGKILL to whisper-server (pid \(pid))", tag: "Transcriber")
+            kill(pid, SIGKILL)
+            // Give SIGKILL a moment to land
+            let killDeadline = Date().addingTimeInterval(1.0)
+            while p.isRunning && Date() < killDeadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
+        log("Server stopped (pid \(pid))", tag: "Transcriber")
+    }
+
+    /// Restart counter for diagnostics + breaker. After N restarts in one session
+    /// we stop trying — the deadlock is permanent for this run.
+    private var restartCount: Int = 0
+    private let maxRestarts: Int = 10
+    private let restartLock = NSLock()
+    /// Timestamp of the last successful restart. Used to coalesce racing watchdog calls:
+    /// with concurrency=2 (or any parallel ASR), several requests can time out
+    /// simultaneously and all enter `restartServer()`. The NSLock serializes them,
+    /// but without coalescing each waiter does its OWN redundant restart, killing
+    /// the server that the previous caller just brought back up.
+    private var lastRestartAt: Date? = nil
+    private let restartCoalesceWindow: TimeInterval = 5.0
+
+    /// Proactive-restart counter. Increments on every `/inference` call. When it
+    /// reaches `proactiveRestartInterval`, a restart happens BEFORE the deadlock
+    /// at ~150 inferences. Goal: keep `__ggml_metal_rsets_init` from accumulating
+    /// the resource sets that eventually cause the hang. Cheaper to spend 10 s on
+    /// a clean restart than to wait for a 60 s timeout + watchdog retry.
+    private var inferenceCount: Int = 0
+    private let inferenceCountLock = NSLock()
+    private let proactiveRestartInterval: Int = 100
+
+    /// Reset the watchdog breaker. Call at the start of each new file transcription
+    /// so the per-session restart budget refreshes.
+    public func resetWatchdog() {
+        restartLock.lock()
+        if restartCount > 0 {
+            log("Watchdog reset: previous session used \(restartCount)/\(maxRestarts) restarts", tag: "Transcriber")
+        }
+        restartCount = 0
+        lastRestartAt = nil
+        restartLock.unlock()
+
+        inferenceCountLock.lock()
+        inferenceCount = 0
+        inferenceCountLock.unlock()
+    }
+
+    /// Increment the proactive counter and return true when it crosses the threshold.
+    /// Counter wraps to 0 on threshold crossing so the next 100 inferences trigger
+    /// another preemptive restart. Thread-safe under concurrency=2 pipelined ASR.
+    private func shouldProactiveRestart() -> Bool {
+        inferenceCountLock.lock()
+        defer { inferenceCountLock.unlock() }
+        inferenceCount += 1
+        if inferenceCount >= proactiveRestartInterval {
+            inferenceCount = 0
+            return true
+        }
+        return false
+    }
+
+    /// Restart whisper-server proactively (not in response to a timeout). Does NOT
+    /// count against the watchdog breaker — proactive restarts aren't failures.
+    /// Coalescing window applies: if a peer restart happened within the last 5 s,
+    /// this is a no-op.
+    public func proactiveRestart() {
+        restartLock.lock()
+        defer { restartLock.unlock() }
+        if let last = lastRestartAt, Date().timeIntervalSince(last) < restartCoalesceWindow {
+            let age = Date().timeIntervalSince(last)
+            log("Proactive restart coalesced — peer restart \(String(format: "%.1f", age))s ago", tag: "Transcriber")
+            return
+        }
+        log("Proactive restart (after \(proactiveRestartInterval) inferences) — preempting Metal deadlock...", tag: "Transcriber")
+        stopServer()
+        Thread.sleep(forTimeInterval: 1.0)
+        do {
+            try startServer()
+            if isServerRunning {
+                lastRestartAt = Date()
+            }
+        } catch {
+            log("Proactive restart failed: \(error)", tag: "Transcriber")
+        }
+    }
+
+    /// Kill and restart the whisper-server process. Used by the watchdog when /inference
+    /// times out (typically Metal-backend deadlock in `ggml_metal_rsets_init`).
+    /// Coalesces concurrent restart requests: if a successful restart happened within
+    /// the last `restartCoalesceWindow` seconds, this is a no-op (the caller's retry
+    /// will hit the freshly-restarted server).
+    /// Returns false if the breaker has tripped or restart itself failed.
+    @discardableResult
+    public func restartServer() -> Bool {
+        restartLock.lock()
+        defer { restartLock.unlock() }
+
+        // Coalesce: a peer watchdog call just restarted the server. Don't double-restart.
+        if let last = lastRestartAt, Date().timeIntervalSince(last) < restartCoalesceWindow {
+            let age = Date().timeIntervalSince(last)
+            log("Restart coalesced — peer restart finished \(String(format: "%.1f", age))s ago; server is fresh", tag: "Transcriber")
+            return isServerRunning
+        }
+
+        guard restartCount < maxRestarts else {
+            log("Restart breaker tripped (\(restartCount)/\(maxRestarts)) — giving up", tag: "Transcriber")
+            return false
+        }
+        restartCount += 1
+        log("Restarting whisper-server (attempt \(restartCount)/\(maxRestarts))...", tag: "Transcriber")
+        stopServer()  // now properly waits + SIGKILL fallback
+        Thread.sleep(forTimeInterval: 1.0)  // let Metal/GPU resources unwind
+        do {
+            try startServer()
+            if isServerRunning {
+                lastRestartAt = Date()
+            }
+            return isServerRunning
+        } catch {
+            log("Restart failed: \(error)", tag: "Transcriber")
+            return false
+        }
     }
 
     public func transcribe(audioURL: URL, timeout: TimeInterval = 30, languageOverride: String? = nil) async throws -> String {
         let language = languageOverride ?? config.language
-        let (text, _) = try await sendInference(
+        let (text, _) = try await sendInferenceWithWatchdog(
             audioURL: audioURL,
             timeout: timeout,
             language: language,
@@ -92,13 +258,59 @@ public class Transcriber {
     /// Transcribe and detect language. Used on first chunk of a file to lock language for subsequent chunks.
     /// Returns (cleaned text, detected language ISO code like "ru"/"en").
     public func transcribeDetectLanguage(audioURL: URL, timeout: TimeInterval = 30) async throws -> (text: String, language: String) {
-        let (text, language) = try await sendInference(
+        let (text, language) = try await sendInferenceWithWatchdog(
             audioURL: audioURL,
             timeout: timeout,
             language: "auto",
             responseFormat: "verbose_json"
         )
         return (Transcriber.removeHallucinations(text), Transcriber.toISOCode(language))
+    }
+
+    /// Wrap `sendInference` with a watchdog: on URL timeout, assume whisper-server is hung
+    /// (typically Metal-backend deadlock), kill+restart the process, and retry the request
+    /// once. If the second attempt also times out, propagate the error so the caller logs
+    /// it as an ASR failure and writes an empty chunk.
+    private func sendInferenceWithWatchdog(
+        audioURL: URL, timeout: TimeInterval, language: String, responseFormat: String
+    ) async throws -> (String, String) {
+        // Proactive restart BEFORE the call: preempt Metal deadlock by cycling the
+        // server every N inferences. With concurrency=2 the second in-flight request
+        // may be killed by this restart — that's fine: the watchdog catch-block below
+        // will see networkConnectionLost, coalesce against the just-finished restart,
+        // and retry once against the fresh server.
+        if shouldProactiveRestart() {
+            proactiveRestart()
+        }
+        do {
+            return try await sendInference(
+                audioURL: audioURL, timeout: timeout,
+                language: language, responseFormat: responseFormat
+            )
+        } catch {
+            // Hang signature: URLError.timedOut, or any URLSession error after the server stopped
+            // responding mid-stream. Both warrant a restart attempt.
+            let isHang: Bool = {
+                if let url = error as? URLError {
+                    return url.code == .timedOut
+                        || url.code == .networkConnectionLost
+                        || url.code == .cannotConnectToHost
+                }
+                return false
+            }()
+            guard isHang else { throw error }
+
+            log("Watchdog: whisper-server unresponsive (\(error.localizedDescription)) — restarting and retrying", tag: "Transcriber")
+            let restarted = restartServer()
+            guard restarted else {
+                throw TranscriberError.processFailed("whisper-server hung and restart failed")
+            }
+            // One retry only. If this also fails the caller will write an empty chunk.
+            return try await sendInference(
+                audioURL: audioURL, timeout: timeout,
+                language: language, responseFormat: responseFormat
+            )
+        }
     }
 
     /// Convert Whisper's language output to ISO 639-1 code.

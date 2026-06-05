@@ -14,6 +14,17 @@ public class LlamaClient: LLMProcessor {
         self.modelPath = modelPath
     }
 
+    /// Kill orphaned llama-server processes from previous app sessions. Call at
+    /// app launch BEFORE the first `startServer()`. See ProcessHygiene.swift and
+    /// `Transcriber.killOrphanedServersAtLaunch` for the full rationale.
+    public func killOrphanedServersAtLaunch() {
+        ProcessHygiene.killOrphans(
+            executablePath: serverPath,
+            port: port,
+            label: "llama-server"
+        )
+    }
+
     public func startServer() throws {
         guard FileManager.default.isExecutableFile(atPath: serverPath) else {
             throw LlamaError.serverNotFound(serverPath)

@@ -25,6 +25,7 @@ public class StatusBarController {
     public var onTranscribeFile: (() -> Void)?
     public var onUndoDictation: (() -> Void)?
     public var onOpenReplacements: (() -> Void)?
+    public var onCheckUpdates: (() -> Void)?
     /// Called when the user changes a mode from the menu bar.
     /// `forFile` distinguishes dictation vs. file mode.
     public var onModeChange: ((_ forFile: Bool, _ mode: PostProcessingMode) -> Void)?
@@ -44,6 +45,12 @@ public class StatusBarController {
 
     public func setup() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Persist the icon's position after the user Cmd+drags it. Without an
+        // autosaveName, macOS picks a default slot (often behind the camera
+        // notch on MacBook Air/Pro) every launch, and the user has to
+        // re-position it each time. With this set, the OS remembers the user's
+        // chosen position across launches.
+        statusItem?.autosaveName = "VoiceInk"
         updateUI()
     }
 
@@ -161,6 +168,11 @@ public class StatusBarController {
         logItem.target = self
         menu.addItem(logItem)
 
+        // Check for Updates… (Sparkle)
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkUpdatesAction), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Quit
@@ -189,6 +201,10 @@ public class StatusBarController {
 
     @objc private func openLogAction() {
         onOpenLog?()
+    }
+
+    @objc private func checkUpdatesAction() {
+        onCheckUpdates?()
     }
 
     @objc private func quitAction() {

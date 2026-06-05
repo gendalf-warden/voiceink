@@ -294,11 +294,21 @@ open VoiceInk.app        # запуск
 3. **License audit**: проверить лицензии всех встроенных компонентов (whisper.cpp, llama.cpp, ggml, qwen2.5 модель, OpenSSL, CoreML модели). Составить NOTICE.md / ACKNOWLEDGEMENTS со списком зависимостей, их лицензий и условий распространения. Убедиться что ничего не ограничивает коммерческое/массовое распространение
 4. **Иконка приложения**: создать .icns для VoiceInk (видна в Dock, Finder, Login Items, Cmd+Tab). Сейчас показывает generic «exec» иконку
 5. **Uninstall**: полная очистка — удалить модели (~3.5 GB из ~/Library/Application Support/VoiceInk/), конфиг (~/.config/voiceink/), LaunchAgent, логи. Кнопка в Settings или отдельный uninstall-скрипт
+6. ~~**Install guide со скринами**~~ ✅ — `install.html` на GH Pages, 9 шагов покрывают весь macOS 15 (Sequoia) first-run flow: download → drag → **двойной Gatekeeper-блок** (Privacy & Security панель между ними) → Welcome wizard → Microphone + Accessibility permissions с детализированным sub-flow (4 скрина) → загрузка моделей 3.5ГБ → menu bar icon → test dictation (анимированный GIF состояний иконки). 11 скринов + 1 GIF (~6МБ total). Troubleshooting: 7 раскрывающихся блоков. Landing-page: ghost-button «Installation guide →» рядом с Download + жёлтый callout «First time installing?» для перехвата внимания. Шаблон в `scripts/release.sh` зеркально обновлён — будущие релизы автоматически. Live: https://gendalf-warden.github.io/voiceink/install.html
 
 ### Фаза 4 — Ежедневные улучшения
 3. **Минимальная длина записи**: если < 0.5с — не отправлять на Whisper (случайное нажатие Fn)
 4. **Отмена последней диктовки**: Cmd+Z — восстановить предыдущий clipboard
 5. **Replacements: Cmd+V не работает в ячейках таблицы** — ячейка получает фокус, но paste из клипборда игнорируется. Нужен Edit menu или responder chain fix для NSTableView text field editor
+   - *Дополнительно*: Export/Import словаря замен (JSON или CSV). Кнопки «Export…» / «Import…» в ReplacementsWindowController. Цель — сохранить пользовательский словарь перед полным Uninstall (Phase 3.5), а после переустановки загрузить обратно. Merge-on-import (дубликаты — поверх существующих или предложить выбор)
+
+#### 4.X — Whisper Metal deadlock (приоритет: высокий)
+Whisper-server залипает в `__ggml_metal_rsets_init_block_invoke` retry-loop в `libggml-metal.0.9.6.dylib` после ~150-180 `/inference` запросов подряд. Сервер живой, RSS ~700МБ, не падает — но Metal-thread держит inference-mutex навсегда, все новые запросы виснут на `std::mutex::lock`. Воспроизведено на **обеих машинах** (M3 Max 36ГБ, M-чип 8ГБ) — НЕ RAM-зависимо.
+
+- **6. ✅ Watchdog (готово в 0.5.001)** — `Transcriber.sendInferenceWithWatchdog` ловит URL timeout/connection lost → `restartServer()` → retry один раз. Breaker на 10 рестартов. Применяется ко всем вызовам, не только low-RAM. Активирован для всех машин.
+- **7. Proactive restart каждые N чанков** — рестартить whisper-server превентивно каждые 100-150 запросов, не дожидаясь deadlock. Цена: ~3с downtime каждые ~25 мин. Win: ноль ASR-фейлов, не нужны 60с таймауты на чанк → весь файл доедает чище. Реализация в `Transcriber`: счётчик `inferenceCount` инкрементится в `sendInference`, при достижении порога — `restartServer()`. Опционально настройка `proactiveRestartEvery` в Config.
+- **8. Откатить `-nfa` или сделать opt-in** — флаг `-nfa` на ≤8ГБ добавлен из гипотезы про flash-attention. После анализа stack'а ggml-metal на 36ГБ deadlock происходит и БЕЗ FA — значит FA не корень. Опции: убрать совсем (вернуть default), сделать opt-in в Settings, или оставить как одну из защит для 8ГБ (профит ~10% RAM на VRAM). Решение по результатам теста watchdog'а.
+- **9. Обновить bundled whisper.cpp/ggml до latest** — текущая ggml 0.9.6, whisper.cpp v1.8.3+156. Проверить changelog upstream на упоминание `ggml_metal_rsets` или связанных Metal-init фиксов. Это правильный долгосрочный фикс (а не обходные watchdog'и). Риски: 200+ коммитов в ggml, пересобрать `lib/` + `lib-llama/` в бандле, регрессировать всё. См. также Фаза 6 п.14.
 
 ### Фаза 5 — Качество транскрипции
 6. ~~**Словарь замен**~~ ✅ — TextReplacer + ReplacementsWindowController с live search, edit-on-click, нативные ±  кнопки. Применяется после Whisper, до LLM. Меню: Replacements… (Cmd+R)
@@ -323,14 +333,25 @@ open VoiceInk.app        # запуск
     - **Gemma 2 2B** (Gemma terms, ~1.6 GB) — приоритет 4
     Метрики сравнения: качество пунктуации (на 15-мин эталонной транскрипции), скорость на чанк, размер бандла, RAM
 13. **Статистика диктовок**: счётчик слов за день/неделю/месяц
-14. **Обновление whisper.cpp** (проверить ~2026-05-15): сейчас локально v1.8.3-156, upstream v1.8.4. Полезно: UTF-8 fix для русского, VAD timing fix для SRT, perf gains. Риски: 200+ коммитов в ggml, пересобрать lib/ в бандле
+14. **Обновление whisper.cpp** (приоритет повышен — см. Фаза 4.X п.9): сейчас локально v1.8.3-156, upstream v1.8.4+. **Главный мотив сейчас — Metal deadlock в `ggml_metal_rsets_init`**, который воспроизводится на ВСЕХ Mac (8ГБ и 36ГБ) при длинных файлах. Также: UTF-8 fix для русского, VAD timing fix для SRT, perf gains. Риски: 200+ коммитов в ggml, пересобрать lib/ в бандле, регрессировать все режимы
 15. **Встроенный видеообзор** (onboarding): короткое (30-60с) видео «как пользоваться» — Fn для диктовки, Replacements, Transcribe File. Показывать новым пользователям при первом запуске (после first-run wizard) или из меню Help… → Watch tutorial. Видео либо встроенное в бандл, либо стримится с GitHub Pages. Формат — экранкаст с озвучкой
+16. **R&D: FluidAudio review** — https://github.com/FluidInference/FluidAudio. Изучить что это за продукт (предположительно Swift-нативная альтернатива whisper.cpp / VAD / audio pipeline). Оценить: можно ли заменить или дополнить наши компоненты — Transcriber (whisper-server), AudioRecorder (AVAudioEngine), AudioConverter, диаризацию. Метрики сравнения: качество ASR на русском, скорость на M-чипе, размер бандла, лицензия (важно — Qwen2.5 уже блокер коммерции, см. п.12), RAM. Возможные выгоды: убрать whisper.cpp dylib bundling + Metal deadlock проблемы (Фаза 4.X), уменьшить размер .app. Возможный вывод: «полностью избыточно/несовместимо» — тогда документировать решение и закрыть. ~2-3ч на оценку + benchmark
+17. **R&D: Beingpax/VoiceInk review** — https://github.com/Beingpax/VoiceInk. **Важно**: совпадает по названию с нашим проектом — нужно понять чтó это (родительский проект из которого мы форкнули? независимый namesake? потенциальный конфликт по имени?). Изучить архитектуру, фичи, лицензию. Оценить: (a) есть ли там идеи/паттерны которые стоит позаимствовать, (b) есть ли причины переименовать наш проект во избежание путаницы, (c) можно ли как-то скоординироваться / контрибьютнуть upstream. Сравнить с нашим стэком: hotkey, ASR, post-processing, file transcription, Sparkle auto-update, replacements. Результат: либо список заимствований в наш бэклог, либо решение о переименовании, либо «нерелевантно». ~2-3ч
+18. **R&D: новые модели для пост-обработки** — оценить применимость к VoiceInk:
+    - **GPT OSS 20B 128k** (OpenAI open weights, ~12 ГБ Q4) — велик для типичных Mac, но есть Apache 2.0 license — кандидат на замену Qwen2.5 (см. п.12, блокер коммерции). На M-Pro/Max с 32+ ГБ может работать.
+    - **GPT OSS Safeguard 20B** — модель с safety-фильтрами; неприменимо к нашему usecase (пунктуация диктовки, цензура не нужна).
+    - **GPT OSS 120B 128k** — только для Mac Studio с 64+ ГБ или облачный inference. Не для типичного MacBook.
+    - **Llama 4 Scout 17Bx16E 128k** — MoE архитектура, 17B активных параметров, 109B total. Слишком велика для локального бандла.
+    - **Qwen3 32B 131k** — на порядок больше нашей Qwen2.5-3B. Может на M3 Max 36GB, но не для большинства машин.
+    - **Llama 3.3 70B Versatile 128k** — облачный/server-class. Не для bundle.
+    - **Llama 3.1 8B Instant 128k** — единственный реалистичный кандидат для локального бандла (~5 ГБ Q4, x2 от текущей Qwen2.5-3B). Llama license — допустимо для коммерции (см. п.12). Метрика — качество пунктуации на 15-мин русской эталонной транскрипции, скорость на чанк, RAM. **Приоритет: высокий** — закроет одновременно блокер лицензии и улучшит качество.
+    Список похож на каталог Groq (128k context, "Instant" суффикс) — отдельно подумать о cloud-inference опции (противоречит «no cloud» позиции проекта, но возможно как opt-in для пользователей которые согласны на трейдофф). ~3-4ч на оценку Llama 3.1 8B локально
 
 ### Фаза 7 — Auto-updater (когда будут пользователи)
 14. **Разделение на компоненты**: бинарник, dylibs, модели — каждый со своей версией
 15. ~~**Первая установка**: скачивает все компоненты (~3.5 GB) с прогрессом~~ ✅ — ModelManager + ModelDownloadWindowController
-16. **Check for updates**: при запуске проверять `latest.json` на GitHub, если есть новая версия — показать уведомление с кнопкой скачать (открывает GitHub Releases в браузере). Минимальный вариант до полного auto-updater
-17. **Auto-updater**: проверяет `latest.json`, скачивает только изменённое
+16. ~~**Check for updates**~~ ✅ — Sparkle 2.x в 0.5.001. Меню «Check for Updates…», ручная проверка, ed25519-подписанные апдейты. См. CLAUDE.md → Auto-update.
+17. ~~**Auto-updater**~~ ✅ — Sparkle с EdDSA-подписями скачивает + ставит новый .app, модели в `~/Library/Application Support/` не трогает (там их Sparkle не видит). При бампе `modelsTag` ModelManager на следующем запуске сам триггернёт переcкачивание моделей.
 18. **Авто-обновление при запуске**: скачать, заменить, перезапустить, прогресс в splash
 19. **Fallback**: если обновление не удалось — работает на текущей версии
 
@@ -353,7 +374,7 @@ open VoiceInk.app        # запуск
 15. **Файловая транскрипция с LLM** — тот же пайплайн что и голосовая диктовка
 16. **DMG инсталлер** — create-dmg, фон 600x400 1x с drag-стрелкой, сборка в /tmp
 17. **First-run wizard** — проверяет реальный статус permissions (не флаг в конфиге), floating окно, polling каждые 1.5с
-18. **VERSION файл** — нотация 0.Xb (бета), dev-сборка → "dev" в Info.plist, release → версия из файла
+18. **VERSION файл** — нотация `MAJOR.MINOR.PATCH` (трёхзначный патч с лидирующими нулями, например `0.5.001`). PATCH бампится на любой фикс; MINOR — только при крупной новой функциональности по согласованию. Dev-сборка → суффикс `+dev` в Info.plist; release → версия из файла. До 0.5.001 использовалась нотация `0.Xb` (бета)
 19. **Версия в меню** — CFBundleShortVersionString из Info.plist, fallback "dev"
 20. **Git-flow** — main (релизы) → develop (интеграция) → feature/* (агенты), rebase + ff merge
 21. **TDD** — XCTest target, юнит-тесты для чистой логики, pre-merge валидация обязательна

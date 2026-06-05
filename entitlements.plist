@@ -6,15 +6,27 @@
     <key>com.apple.security.device.audio-input</key>
     <true/>
 
-    <!-- Required to load bundled whisper-server, llama-server and their dylibs
-         that are not signed by Apple -->
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
-
-    <!-- Required for whisper.cpp / GGML JIT-style code paths and Metal compute -->
+    <!-- Required for whisper.cpp / GGML JIT-style code paths and Metal compute.
+         Kept because GGML compiles Metal kernel IR at runtime. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+
+    <!--
+      Intentionally DROPPED:
+        com.apple.security.cs.disable-library-validation
+      All bundled dylibs/.so/frameworks (whisper, llama, ggml backends,
+      Sparkle.framework + its XPCs + Updater + Autoupdate) are re-signed by
+      build-app.sh with our Developer ID (Team 94QK2GK5GT), so library
+      validation passes natively. Disabling it was a relic from the era when
+      we shipped homebrew-signed libs.
+
+      Apple's macOS 15 Gatekeeper appears to factor "library validation
+      disabled" into its first-launch risk assessment — apps with it get the
+      unfriendly "Apple could not verify" Done/Move-to-Trash dialog instead
+      of the friendly "App downloaded from Internet — Open?" dialog, even
+      when fully notarized and stapled.
+    -->
 </dict>
 </plist>

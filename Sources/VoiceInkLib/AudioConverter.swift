@@ -110,6 +110,12 @@ public class AudioConverter {
     /// Split a 16kHz mono WAV into chunks of ~targetDuration seconds.
     /// Finds silence in a ±searchWindow around each boundary to avoid cutting words.
     /// Returns URLs of temp WAV files (caller is responsible for cleanup).
+    ///
+    /// Streaming implementation: reads one window of (target + searchWindow) frames at a time
+    /// using `file.framePosition` seeks. Peak memory is ~(target + searchWindow) * 4 bytes ≈
+    /// 2.2 MB for 35s @ 16kHz float32, regardless of total file length. The previous in-memory
+    /// approach allocated ~553 MB for a 2.5h file, which broke on RAM-constrained machines
+    /// (truncated buffer → silent chunks → empty transcription for the second half).
     public func splitIntoChunks(
         wavURL: URL,
         targetDuration: TimeInterval = 30.0,
@@ -125,70 +131,106 @@ public class AudioConverter {
             return [AudioChunk(url: wavURL, startTime: 0, endTime: totalDuration, index: 0)]
         }
 
-        // Read entire file into memory (16kHz mono is ~120 KB/s, fine for RAM)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(totalFrames)) else {
-            throw AudioConverterError.conversionFailed("Cannot allocate buffer")
-        }
-        try file.read(into: buffer)
-
-        guard let samples = buffer.floatChannelData?[0] else {
-            throw AudioConverterError.conversionFailed("Cannot access samples")
-        }
-
-        // Find split points (silence locations near each boundary)
         let targetSamples = Int(targetDuration * sampleRate)
         let windowSamples = Int(searchWindow * sampleRate)
         let silenceThreshold: Float = 0.005
         let minSilenceRun = Int(sampleRate * 0.2) // 200ms of silence
-
-        var splitPoints: [Int] = [0]
-        var nextBoundary = targetSamples
-
-        while nextBoundary < totalFrames - targetSamples / 2 {
-            // Search for silence in [nextBoundary - window, nextBoundary + window]
-            let searchStart = max(0, nextBoundary - windowSamples)
-            let searchEnd = min(totalFrames, nextBoundary + windowSamples)
-
-            let silencePoint = findSilenceCenter(
-                samples: samples,
-                from: searchStart,
-                to: searchEnd,
-                threshold: silenceThreshold,
-                minRun: minSilenceRun
-            ) ?? nextBoundary
-
-            splitPoints.append(silencePoint)
-            nextBoundary = silencePoint + targetSamples
-        }
-        splitPoints.append(totalFrames)
-
-        // Write each chunk to a temp WAV
+        let format = file.processingFormat
         let settings = file.fileFormat.settings
+
         var chunks: [AudioChunk] = []
-        for i in 0..<(splitPoints.count - 1) {
-            let startFrame = splitPoints[i]
-            let endFrame = splitPoints[i + 1]
-            let frameCount = endFrame - startFrame
-            guard frameCount > 0 else { continue }
+        var currentStart = 0  // absolute frame position in the file
+        var chunkIndex = 0
 
-            let chunkURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("voiceink-chunk-\(i)-\(UUID().uuidString).wav")
+        while currentStart < totalFrames {
+            // Read up to (target + window) frames starting at currentStart.
+            // The extra `window` frames are forward-lookahead for silence search.
+            let remaining = totalFrames - currentStart
+            let readSize = min(targetSamples + windowSamples, remaining)
 
-            guard let chunkBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(frameCount)) else {
-                continue
+            guard let buffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: AVAudioFrameCount(readSize)
+            ) else {
+                throw AudioConverterError.conversionFailed("Cannot allocate \(readSize)-frame buffer")
             }
-            memcpy(chunkBuffer.floatChannelData![0], samples.advanced(by: startFrame), frameCount * MemoryLayout<Float>.size)
-            chunkBuffer.frameLength = AVAudioFrameCount(frameCount)
+
+            file.framePosition = AVAudioFramePosition(currentStart)
+            try file.read(into: buffer, frameCount: AVAudioFrameCount(readSize))
+            let loaded = Int(buffer.frameLength)
+
+            // If even one window's worth couldn't be loaded, bail with a clear warning.
+            // Continuing would produce a single silent chunk for the rest of the file.
+            if loaded == 0 {
+                log("WARNING: read returned 0 frames at position \(currentStart)/\(totalFrames). Stopping split early.", tag: "AudioConverter")
+                break
+            }
+            if loaded < readSize && currentStart + loaded < totalFrames {
+                log("WARNING: read returned \(loaded)/\(readSize) frames at position \(currentStart). Truncating remaining file.", tag: "AudioConverter")
+            }
+
+            guard let samples = buffer.floatChannelData?[0] else {
+                throw AudioConverterError.conversionFailed("Cannot access samples")
+            }
+
+            // Decide cut offset within the buffer (relative to currentStart).
+            let cutOffset: Int
+            if loaded < targetSamples + windowSamples / 2 {
+                // Near end of file (or short read): take the whole loaded range as the final chunk.
+                cutOffset = loaded
+            } else {
+                // Search silence in [target - window, target + window] of the buffer.
+                let searchStart = max(0, targetSamples - windowSamples)
+                let searchEnd = min(loaded, targetSamples + windowSamples)
+                cutOffset = findSilenceCenter(
+                    samples: samples,
+                    from: searchStart,
+                    to: searchEnd,
+                    threshold: silenceThreshold,
+                    minRun: minSilenceRun
+                ) ?? targetSamples
+            }
+
+            // Sanity: never advance by 0, would infinite-loop.
+            guard cutOffset > 0 else {
+                log("WARNING: cutOffset == 0 at position \(currentStart). Stopping split.", tag: "AudioConverter")
+                break
+            }
+
+            // Write chunk [0..cutOffset] of buffer to a temp WAV.
+            let chunkURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("voiceink-chunk-\(chunkIndex)-\(UUID().uuidString).wav")
+
+            guard let chunkBuffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: AVAudioFrameCount(cutOffset)
+            ) else {
+                throw AudioConverterError.conversionFailed("Cannot allocate chunk buffer")
+            }
+            memcpy(
+                chunkBuffer.floatChannelData![0],
+                samples,
+                cutOffset * MemoryLayout<Float>.size
+            )
+            chunkBuffer.frameLength = AVAudioFrameCount(cutOffset)
 
             let writer = try AVAudioFile(forWriting: chunkURL, settings: settings)
             try writer.write(from: chunkBuffer)
 
-            let startTime = Double(startFrame) / sampleRate
-            let endTime = Double(endFrame) / sampleRate
-            chunks.append(AudioChunk(url: chunkURL, startTime: startTime, endTime: endTime, index: i))
+            let startTime = Double(currentStart) / sampleRate
+            let endTime = Double(currentStart + cutOffset) / sampleRate
+            chunks.append(AudioChunk(
+                url: chunkURL,
+                startTime: startTime,
+                endTime: endTime,
+                index: chunkIndex
+            ))
+
+            currentStart += cutOffset
+            chunkIndex += 1
         }
 
-        log("Split into \(chunks.count) chunks (total \(String(format: "%.1f", totalDuration))s)", tag: "AudioConverter")
+        log("Split into \(chunks.count) chunks (total \(String(format: "%.1f", totalDuration))s, streaming)", tag: "AudioConverter")
         return chunks
     }
 

@@ -25,8 +25,16 @@ public class FileTranscriptionManager {
     public var translateTarget: String = "en"
     /// User replacements applied after Whisper, before LLM
     public var replacements: [String: String] = [:]
-    /// Number of concurrent ASR/LLM requests (2 = ~60% faster than sequential baseline)
+    /// Number of concurrent ASR/LLM requests (2 = ~60% faster than sequential baseline).
+    /// On ≤8 GB machines AppDelegate sets this to 1 — two parallel whisper inferences
+    /// each consume ~0.5-1 GB working memory, on top of the loaded model + LLM, which
+    /// exceeds the budget and causes swap/OOM. Sequential is slower but stable.
     public var concurrency: Int = 2
+
+    /// Low-memory mode: run ASR for all chunks first, then LLM for all chunks, instead
+    /// of pipelining (which keeps whisper + llm working sets active simultaneously).
+    /// AppDelegate sets this to true on ≤8 GB machines. Slower but lower peak RAM.
+    public var lowMemoryMode: Bool = false
 
     private var llamaClient: LlamaClient? { llamaClientProvider?() }
     private var ollamaClient: OllamaClient? { ollamaClientProvider?() }
@@ -48,12 +56,19 @@ public class FileTranscriptionManager {
     public init() {}
 
     public func startFileTranscription(transcriber: Transcriber) {
+        // Force VoiceInk to the front BEFORE running the picker. Otherwise the picker
+        // opens behind whatever app currently owns the front (the menu bar item click
+        // doesn't activate the accessory app on its own), and the user has to hunt for
+        // the panel on another window or another Space.
+        NSApp.showDock()  // activationPolicy = .regular + activate(ignoringOtherApps:)
+
         // Show file picker
         let panel = NSOpenPanel()
         panel.title = "Select audio or video file"
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
+        panel.level = .modalPanel  // force above other floating windows on the active Space
 
         var types: [UTType] = []
         for ext in AudioConverter.supportedExtensions {
@@ -63,7 +78,13 @@ public class FileTranscriptionManager {
         }
         panel.allowedContentTypes = types
 
+        // One more activation right before modal — Dock-launch may have completed
+        // asynchronously and the panel needs a focused app at runModal() time.
+        NSApp.activate(ignoringOtherApps: true)
+
         guard panel.runModal() == .OK, let fileURL = panel.url else {
+            // Picker dismissed without selection — hide dock if no other windows are open.
+            NSApp.hideDockIfNoWindows()
             return
         }
 
@@ -81,6 +102,8 @@ public class FileTranscriptionManager {
     }
 
     private func runPipeline(fileURL: URL, transcriber: Transcriber, window: TranscriptionResultWindowController) async {
+        // Fresh restart budget per file transcription.
+        transcriber.resetWatchdog()
         do {
             let pipelineStart = Date()
 
@@ -142,132 +165,171 @@ public class FileTranscriptionManager {
                 }
             }
 
-            // Step 4b: Parallel pipeline — up to `concurrency` ASR and LLM requests in flight
+            // Step 4b: Pipeline (parallel or sequential per `lowMemoryMode`).
             let llamaReady = llamaClient?.isServerRunning == true
             let ollamaReady = ollamaClient != nil
             let activeMode = mode
             let systemPrompt = activeMode.systemPrompt(translateTarget: translateTarget)
             let useLLM = activeMode != .off && systemPrompt != nil && (llamaReady || ollamaReady)
-            let asrSem = AsyncSemaphore(value: concurrency)
-            let llmSem = AsyncSemaphore(value: concurrency)
-            let completed = ChunkCounter()
             let filterLanguage = expectedLanguage
             // Script-mismatch guards only apply when LLM should preserve the source language.
             // For .translate the output language is intentionally different — disable the guard.
             let targetLang = activeMode == .translate ? nil : expectedLanguage
-            log("Pipeline: concurrency=\(concurrency), mode=\(activeMode.rawValue), useLLM=\(useLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
+            log("Pipeline: concurrency=\(concurrency), lowMem=\(lowMemoryMode), mode=\(activeMode.rawValue), useLLM=\(useLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
 
-            await withTaskGroup(of: Void.self) { group in
-                for chunk in chunks {
-                    group.addTask { [weak self] in
-                        guard let self = self else { return }
+            // Per-chunk ASR step. Returns raw text (after replacements) or empty on failure.
+            // Timeout: 2× realtime on healthy systems, 4× on low-RAM (slower without
+            // flash-attention + watchdog needs headroom before declaring server hung).
+            let timeoutMultiplier: TimeInterval = self.lowMemoryMode ? 4 : 2
+            @Sendable func runASR(chunk: AudioConverter.AudioChunk) async -> String {
+                do {
+                    let timeout = max(60, chunk.duration * timeoutMultiplier)
+                    var text = try await transcriber.transcribe(
+                        audioURL: chunk.url,
+                        timeout: timeout
+                    )
 
-                        // ASR with fast text format. After transcription, check if the output's
-                        // script matches expected language (cheap character analysis, no extra server call).
-                        // If not — re-transcribe with expected language forced to reject hallucinations.
-                        await asrSem.wait()
-                        let raw: String
+                    if let expected = targetLang,
+                       !text.isEmpty,
+                       !Transcriber.scriptMatches(text, language: expected) {
+                        let preview = String(text.prefix(60))
+                        log("Chunk \(chunk.index): ASR script mismatch — '\(preview)'. Re-transcribing with \(expected) forced.", tag: "FileTranscription")
                         do {
-                            let timeout = max(60, chunk.duration * 2)
-                            var text = try await transcriber.transcribe(
+                            let retry = try await transcriber.transcribe(
                                 audioURL: chunk.url,
-                                timeout: timeout
+                                timeout: timeout,
+                                languageOverride: expected
                             )
-
-                            // Script mismatch check (no extra HTTP call — pure char analysis)
-                            if let expected = targetLang,
-                               !text.isEmpty,
-                               !Transcriber.scriptMatches(text, language: expected) {
-                                let preview = String(text.prefix(60))
-                                log("Chunk \(chunk.index): ASR script mismatch — '\(preview)'. Re-transcribing with \(expected) forced.", tag: "FileTranscription")
-                                do {
-                                    let retry = try await transcriber.transcribe(
-                                        audioURL: chunk.url,
-                                        timeout: timeout,
-                                        languageOverride: expected
-                                    )
-                                    // If still mismatched after forced language, the audio is likely noise
-                                    if !retry.isEmpty && Transcriber.scriptMatches(retry, language: expected) {
-                                        text = retry
-                                    } else {
-                                        log("Chunk \(chunk.index): still mismatch after forced '\(expected)' — dropping", tag: "FileTranscription")
-                                        text = ""
-                                    }
-                                } catch {
-                                    log("Re-transcribe failed for chunk \(chunk.index), dropping", tag: "FileTranscription")
-                                    text = ""
-                                }
+                            if !retry.isEmpty && Transcriber.scriptMatches(retry, language: expected) {
+                                text = retry
+                            } else {
+                                log("Chunk \(chunk.index): still mismatch after forced '\(expected)' — dropping", tag: "FileTranscription")
+                                text = ""
                             }
-
-                            text = text.stripCombiningAccents()
-                            text = Transcriber.stripForeignChars(text, language: filterLanguage)
-                            // Apply user replacements before LLM
-                            raw = TextReplacer.apply(text, replacements: self.replacements)
                         } catch {
+                            log("Re-transcribe failed for chunk \(chunk.index), dropping", tag: "FileTranscription")
+                            text = ""
+                        }
+                    }
+
+                    text = text.stripCombiningAccents()
+                    text = Transcriber.stripForeignChars(text, language: filterLanguage)
+                    return TextReplacer.apply(text, replacements: self.replacements)
+                } catch {
+                    log("ASR failed for chunk \(chunk.index): \(error)", tag: "FileTranscription")
+                    return ""
+                }
+            }
+
+            // Per-chunk LLM step. Returns processed text, or raw on any failure / hallucination guard hit.
+            @Sendable func runLLM(raw: String, chunkIndex: Int) async -> String {
+                guard useLLM, !raw.isEmpty, let prompt = systemPrompt else { return raw }
+                do {
+                    let processed: String
+                    if llamaReady, let llamaClient = self.llamaClient {
+                        processed = try await llamaClient.process(text: raw, systemPrompt: prompt)
+                    } else if let ollamaClient = self.ollamaClient {
+                        processed = try await ollamaClient.process(text: raw, systemPrompt: prompt)
+                    } else {
+                        return raw
+                    }
+                    if activeMode != .translate && processed.count > raw.count * 3 {
+                        log("LLM output too long for chunk \(chunkIndex) — using raw", tag: "FileTranscription")
+                        return raw
+                    }
+                    if let expected = targetLang,
+                       !Transcriber.scriptMatches(processed, language: expected),
+                       Transcriber.scriptMatches(raw, language: expected) {
+                        let preview = String(processed.prefix(60))
+                        log("Chunk \(chunkIndex): LLM changed script — '\(preview)'. Using raw.", tag: "FileTranscription")
+                        return raw
+                    }
+                    return processed
+                } catch {
+                    log("LLM failed for chunk \(chunkIndex): \(error). Using raw.", tag: "FileTranscription")
+                    return raw
+                }
+            }
+
+            if lowMemoryMode {
+                // Sequential 2-phase: all ASR first, then all LLM. Never both at once.
+                // On ≤8 GB machines this prevents whisper + llama working sets coexisting,
+                // which otherwise causes swap thrash and whisper-server timeouts/crashes.
+                //
+                // Phase 1 streams raw ASR text into the window (so the user sees content
+                // immediately, not an empty box for an hour). Phase 2 updates each chunk
+                // in place with the LLM-processed text.
+                var rawByIndex: [Int: String] = [:]
+                let phaseLabel = useLLM ? "1/2" : "1/1"
+                window.setStatus("Phase \(phaseLabel): transcribing...")
+                for (i, chunk) in chunks.enumerated() {
+                    let raw = await runASR(chunk: chunk)
+                    rawByIndex[chunk.index] = raw
+                    // Stream raw text right away — visible to the user before LLM phase
+                    let result = ChunkResult(
+                        index: chunk.index, startTime: chunk.startTime,
+                        endTime: chunk.endTime, text: raw
+                    )
+                    window.appendChunk(result)
+                    window.setStatus("Phase \(phaseLabel): transcribing \(i + 1)/\(totalChunks)...")
+                }
+                if useLLM {
+                    // Reset progress bar for phase 2; chunks stay populated with raw text
+                    // until each one is replaced by the LLM-processed version below.
+                    window.beginPhase(label: "Phase 2/2: post-processing 0/\(totalChunks)...", totalChunks: totalChunks)
+                    for (i, chunk) in chunks.enumerated() {
+                        let raw = rawByIndex[chunk.index] ?? ""
+                        let finalText = raw.isEmpty ? "" : await runLLM(raw: raw, chunkIndex: chunk.index)
+                        window.updateChunkText(index: chunk.index, text: finalText)
+                        window.tickPhaseProgress()
+                        window.setStatus("Phase 2/2: post-processing \(i + 1)/\(totalChunks)...")
+                    }
+                }
+            } else {
+                // Pipelined: up to `concurrency` ASR and LLM requests in flight,
+                // LLM runs in parallel with the next ASR.
+                let asrSem = AsyncSemaphore(value: concurrency)
+                let llmSem = AsyncSemaphore(value: concurrency)
+                let completed = ChunkCounter()
+
+                await withTaskGroup(of: Void.self) { group in
+                    for chunk in chunks {
+                        group.addTask {
+                            await asrSem.wait()
+                            let raw = await runASR(chunk: chunk)
                             await asrSem.signal()
-                            log("ASR failed for chunk \(chunk.index): \(error)", tag: "FileTranscription")
-                            let result = ChunkResult(index: chunk.index, startTime: chunk.startTime,
-                                                     endTime: chunk.endTime, text: "")
+
+                            await llmSem.wait()
+                            let finalText = await runLLM(raw: raw, chunkIndex: chunk.index)
+                            await llmSem.signal()
+
+                            let result = ChunkResult(
+                                index: chunk.index,
+                                startTime: chunk.startTime,
+                                endTime: chunk.endTime,
+                                text: finalText
+                            )
                             window.appendChunk(result)
                             let done = await completed.increment()
                             window.setStatus("Transcribing chunks... \(done)/\(totalChunks)")
-                            return
                         }
-                        await asrSem.signal()
-
-                        // LLM (pipelined — runs while next ASR is already in flight)
-                        var finalText = raw
-                        if useLLM && !raw.isEmpty, let prompt = systemPrompt {
-                            await llmSem.wait()
-                            do {
-                                let processed: String
-                                if llamaReady, let llamaClient = self.llamaClient {
-                                    processed = try await llamaClient.process(text: raw, systemPrompt: prompt)
-                                } else if let ollamaClient = self.ollamaClient {
-                                    processed = try await ollamaClient.process(text: raw, systemPrompt: prompt)
-                                } else {
-                                    processed = raw
-                                }
-                                // Hallucination guard: length — skip for translate (length unpredictable)
-                                if activeMode != .translate && processed.count > raw.count * 3 {
-                                    log("LLM output too long for chunk \(chunk.index) — using raw", tag: "FileTranscription")
-                                    finalText = raw
-                                }
-                                // Hallucination guard: unintended translation (LLM ignored "do not translate" rule).
-                                // targetLang is nil for .translate mode, so this branch is skipped automatically.
-                                else if let expected = targetLang,
-                                        !Transcriber.scriptMatches(processed, language: expected),
-                                        Transcriber.scriptMatches(raw, language: expected) {
-                                    let preview = String(processed.prefix(60))
-                                    log("Chunk \(chunk.index): LLM changed script — '\(preview)'. Using raw.", tag: "FileTranscription")
-                                    finalText = raw
-                                } else {
-                                    finalText = processed
-                                }
-                            } catch {
-                                log("LLM failed for chunk \(chunk.index): \(error). Using raw.", tag: "FileTranscription")
-                                finalText = raw
-                            }
-                            await llmSem.signal()
-                        }
-
-                        let result = ChunkResult(
-                            index: chunk.index,
-                            startTime: chunk.startTime,
-                            endTime: chunk.endTime,
-                            text: finalText
-                        )
-                        window.appendChunk(result)
-                        let done = await completed.increment()
-                        window.setStatus("Transcribing chunks... \(done)/\(totalChunks)")
                     }
+                    await group.waitForAll()
                 }
-                await group.waitForAll()
             }
 
             let totalTime = Date().timeIntervalSince(pipelineStart)
             window.finishStreaming(totalTime: totalTime)
-            log("Transcription done in \(String(format: "%.1f", totalTime))s", tag: "FileTranscription")
+            // Diagnostic: count empty chunks and find their range.
+            // Trailing empties usually mean genuine silence or whisper-server failure mid-pipeline.
+            let emptyChunks = window.emptyChunkIndices()
+            if !emptyChunks.isEmpty {
+                let first = emptyChunks.first!
+                let last = emptyChunks.last!
+                log("Transcription done in \(String(format: "%.1f", totalTime))s — \(emptyChunks.count)/\(totalChunks) chunks empty (indices \(first)…\(last))", tag: "FileTranscription")
+            } else {
+                log("Transcription done in \(String(format: "%.1f", totalTime))s", tag: "FileTranscription")
+            }
 
             // Release lazy-loaded LLM (no-op if eagerly loaded for dictation)
             await onLLMRelease?()
