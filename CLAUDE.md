@@ -2,7 +2,9 @@
 
 Нативное macOS menu bar приложение для локальной голосовой диктовки. Замена Wispr Flow ($15/мес). Полностью автономный .app бандл — все зависимости внутри.
 
-Текущая версия: **0.1b** (файл `VERSION`).
+**Расположение**: `/Users/dima/CLAUDE PROJECTS/VoiceInk` (вынесен из iCloud Drive 2026-06 — см. «Важные технические детали»). Бэкап = GitHub `gendalf-warden/voiceink`, НЕ iCloud.
+
+Текущая версия: см. файл `VERSION` (на момент написания — `0.5.010`).
 
 ## Сборка
 
@@ -104,7 +106,7 @@ open VoiceInk.app        # запуск бандла
 
 ## Важные технические детали
 
-- **iCloud Drive**: сборка бандла и DMG в /tmp, иначе `com.apple.provenance` xattr ломает codesign/hdiutil
+- **Репозиторий вне iCloud Drive** (2026-06): живёт в `/Users/dima/CLAUDE PROJECTS/VoiceInk`, бэкап = GitHub. Раньше был в iCloud — это плодило конфликт-копии (`… 2.app`, `… 2.dmg`, `… 2.png`) и угрожало целостности `.git`. Сборка бандла и DMG по-прежнему в /tmp (чистота codesign/hdiutil, изоляция .build). Если репо когда-либо снова окажется в iCloud — `com.apple.provenance`/`com.apple.FinderInfo` xattr ломают codesign/hdiutil
 - **Dylib bundling**: whisper и llama динамически слинкованы с разными версиями ggml. Whisper dylibs в `Resources/lib/`, llama dylibs в `Resources/lib-llama/` (раздельные директории, чтобы ggml версии не конфликтовали). Абсолютные homebrew пути перезаписываются на @rpath через install_name_tool
 - **GGML backend plugins**: llama-server загружает .so бэкенды (Metal, CPU, BLAS) динамически через `GGML_BACKEND_PATH`. Плагины + libomp.dylib в `lib-llama/`. LlamaClient.swift устанавливает env variable при запуске процесса
 - **CoreML**: whisper использует `ggml-large-v3-turbo-encoder.mlmodelc` (1.2 GB) для GPU-ускорения
@@ -187,6 +189,12 @@ open VoiceInk.app        # запуск бандла
 - Формат: `<type>(<scope>): <description>`
 - Типы: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `chore`
 - Скоупы: `config`, `keymap`, `hotkey`, `transcriber`, `llm`, `ui`, `build`, `history`, `tests`
+
+### Commit cadence (защита от потери работы)
+- **Коммит ≠ сборка.** «Копилка» (build-on-command) относится ТОЛЬКО к сборке .app/DMG. Код коммитим и пушим в `develop` СРАЗУ после каждого логического изменения, не накапливая. Один gap уже стоил 3 недель незакоммиченной работы (всё 0.5.001→0.5.010 лежало в рабочем дереве, в git/GitHub была только v0.5b).
+- Быстрый способ: `./scripts/save.sh ["msg"]` — `git add -A` + commit + push текущей ветки.
+- `develop` всегда трекает `origin/develop` → `git status` показывает «ahead», если есть незапушенное. `pre-merge-check.sh` тоже предупреждает.
+- К концу сессии: working tree чистый и запушенный (или явно перечислен в копилке).
 
 ### Перед мержем в develop
 - `swift build` — 0 warnings
