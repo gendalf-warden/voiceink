@@ -23,10 +23,29 @@ open VoiceInk.app        # запуск бандла
 ## Версионирование
 
 - Файл `VERSION` в корне — единственный источник правды
-- Нотация: `0.Xb` (бета), потом `1.0` и далее
-- `build-app.sh` — dev: версия "dev" в Info.plist, без DMG
-- `build-app.sh release` — версия из VERSION, `VoiceInk-0.1b.dmg`, SHA256, симлинк `VoiceInk.dmg`
-- Версия отображается в menu bar: "VoiceInk v0.1b"
+- **Нотация: `MAJOR.MINOR.PATCH`**, патч трёхзначный с лидирующими нулями. Пример: `0.5.001`, `0.5.002`, …, `0.5.099`, `0.5.100`
+  - **PATCH** (третий блок) бампится на ЛЮБОЕ изменение кода/конфига/докуметации, независимо от того, выпущено это уже наружу или нет. Бамп идёт ВМЕСТЕ с изменением (в той же сессии), не «потом перед билдом» — иначе одна версия начинает означать разное содержимое. **Чек для агента**: перед тем как написать «В копилке (не собрано): …» — убедись что VERSION уже отражает новое содержимое
+  - **MINOR** (второй блок) бампится только при серьёзной новой функциональности и только по согласованию с Димой
+  - **MAJOR** (первый блок) — отдельное решение (например при 1.0)
+  - Старое обозначение `0.Xb` (бета) больше не используется
+- `build-app.sh` — dev: версия `<VERSION>+dev` в Info.plist (например `0.5.001+dev`), без DMG
+- `build-app.sh release` — версия из VERSION, `VoiceInk-0.5.001.dmg`, SHA256, симлинк `VoiceInk.dmg`
+- Версия отображается в menu bar: "VoiceInk v0.5.001"
+
+## Auto-update (Sparkle 2.x)
+
+- **Меню**: «Check for Updates…» в menu bar → дёргает `SPUStandardUpdaterController.checkForUpdates(_:)`.
+- **Конфиг** в Info.plist (генерируется `build-app.sh`):
+  - `SUFeedURL` = `https://github.com/gendalf-warden/voiceink/releases/latest/download/appcast.xml`
+  - `SUPublicEDKey` = base64 публичный ed25519 ключ. Сейчас `h4npNcO5Ft60v0dq3Nxs/un8eRGmdxhjhkfi0MKos3s=`. Если поменять — все existing-installations перестанут получать апдейты до ручной переустановки. При компрометации меняем + публикуем новый Sparkle-enabled релиз вручную всем.
+  - `SUEnableAutomaticChecks` = `false` (только manual check, по согласованию с Димой)
+- **Приватный ключ**: macOS Keychain, account `Sparkle-VoiceInk-EdDSA`, никогда не покидает Keychain кроме `./scripts/sparkle-generate-keys.sh export` для бэкапа.
+- **Sparkle.framework** копируется в `VoiceInk.app/Contents/Frameworks/Sparkle.framework` из `.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/`. Внутренние XPCServices + Updater.app + Autoupdate подписываются отдельно (deepest-first порядок) перед подписью bundle.
+- **Скрипты**:
+  - `./scripts/sparkle-generate-keys.sh` — one-time генерация / import / export ключей
+  - `./scripts/sparkle-sign-dmg.sh path/to/DMG` — печатает `sparkle:edSignature="..." length="..."` для appcast.xml
+- **Релиз**: `./scripts/release.sh` теперь генерирует и публикует `appcast.xml` (помимо `latest.json`) в GitHub Release.
+- **Первая Sparkle-сборка**: 0.5.002. Пользователи на pre-0.5.002 версиях НЕ могут авто-апдейтиться — должны вручную скачать 0.5.002 первый раз.
 
 ## Структура
 
@@ -54,6 +73,7 @@ open VoiceInk.app        # запуск бандла
   - `AsyncSemaphore.swift` — actor-based async семафор для concurrency limit
   - `TextReplacer.swift` — user-defined word replacements (word-boundary regex, case-insensitive)
   - `ReplacementsWindowController.swift` — окно редактора словаря замен с live search
+  - `UpdateController.swift` — обёртка над Sparkle `SPUStandardUpdaterController`. Метод `checkForUpdates()` вызывается из menu bar. Конфиг в Info.plist (SUFeedURL, SUPublicEDKey, SUEnableAutomaticChecks=false). Логирует lifecycle через `SPUUpdaterDelegate`
 - `Sources/UIPreview/main.swift` — fast UI iteration harness (swift run UIPreview)
 - `Tests/VoiceInkTests/` — юнит-тесты (73 теста)
   - `KeyMapTests.swift`, `AppStateTests.swift`, `ConfigTests.swift`, `StringExtensionsTests.swift`, `AudioConverterTests.swift`, `TranscriberTests.swift`, `TextReplacerTests.swift`
@@ -117,6 +137,41 @@ open VoiceInk.app        # запуск бандла
 **Причина**: `AVAssetWriterInput(outputSettings: nil)` (passthrough) не поддерживается для `.wav` формата.
 
 **Фикс**: передать явные PCM outputSettings (16kHz mono 16-bit) в writer input.
+
+### Whisper Metal deadlock на длинных файлах (НЕ полностью решено, есть обходник)
+**Симптом**: при транскрипции файлов >~75 мин whisper-server залипает после ~150-180 `/inference` запросов. Все последующие чанки → URLError.timedOut. Сервер живой (status S), RSS ~700МБ, не падает. Воспроизводится на M3 Max 36ГБ и M-чип 8ГБ — **не RAM-зависимо**.
+
+**Стек hang'а** (через `sample <pid>`):
+- DispatchQueue worker: `__ggml_metal_rsets_init_block_invoke` (libggml-metal.0.9.6.dylib) → usleep → nanosleep → __semwait_signal (retry-loop)
+- httplib worker: `main::$_2::operator()` → `std::mutex::lock()` → __psynch_mutexwait (заблокирован на mutex, который держит Metal-thread)
+- Main thread: `std::thread::join` → __ulock_wait
+
+**Причина**: баг в `libggml-metal.0.9.6.dylib` — кумулятивная утечка/исчерпание Metal resource sets. Каждый `/inference` оставляет аллокацию, после ~150 запросов Metal-аллокатор не может выделить новый resource set и крутит retry с usleep, удерживая inference-mutex.
+
+**Обходник (0.5.001)**: `Transcriber.sendInferenceWithWatchdog` — на URL timeout/connection lost вызывает `restartServer()` (kill + 1.5с пауза + start + waitForServer). Restart-breaker на 10 попыток. Активен для всех вызовов (диктовка + файлы), всех машин.
+
+**Долгосрочный фикс**: обновить bundled ggml/whisper.cpp до версии, где Metal init не утекает. См. PROJECT.md Фаза 4.X п.9 и Фаза 6 п.14.
+
+**НЕ путать с**: `-nfa` (no-flash-attn) — был добавлен в гипотезе про FA, но стек показал что FA здесь не при чём. Сейчас `-nfa` ограничен ≤8ГБ. Можно безопасно убрать (см. бэклог Фаза 4.X п.8).
+
+### Orphaned whisper-server / llama-server processes
+**Симптом**: на 8 ГБ Mac при тяжёлой диктовке whisper-server piling up (~600 МБ each, видели 3-4 одновременно). VoiceInk shutdown() вызывался только из Quit menu item, не из applicationWillTerminate; SIGTERM/SIGINT/Settings-uninstall/crash → child processes reparented to launchd, держат порт 8178, новый сервер не может bind, watchdog рестартит свой dead процесс.
+
+**Фикс (0.5.008)**: `Sources/VoiceInkLib/ProcessHygiene.swift` — `killOrphans(executablePath:port:label:)`. Парсит `ps -axo pid=,command=` для exact-match по нашему bundled executable path, плюс `lsof -ti :PORT` для cross-check. SIGKILL. Вызывается из AppDelegate ПЕРЕД `transcriber.startServer()` / `llamaClient.startServer()`. Также добавлен `applicationWillTerminate(_:)` который зовёт idempotent `shutdown()`. Покрывает crash/SIGKILL/jetsam через next-launch sweep (никак иначе не дотянуться).
+
+### Clipboard paste race
+**Симптом**: dictation paste'ил ПРЕДЫДУЩИЙ clipboard вместо транскрипции. На 8 ГБ под memory pressure target app не успевал прочитать pasteboard за 150 мс — restore old contents выигрывал гонку.
+
+**Фикс (0.5.008)**: `TextInserter.insert()` теперь: (a) сохраняет ВСЕ pasteboard items + types (не только `.string` — image/RTF/file URLs больше не теряются); (b) capture `pasteboard.changeCount` после нашего write; (c) restore delay 150ms → 600ms; (d) перед restore проверяет `shouldRestoreClipboard(changeCountAtOurWrite:changeCountNow:)` — если user скопировал что-то после диктовки (changeCount вырос), restore skipped.
+
+### Gatekeeper unfriendly first-launch dialog on macOS 15
+**Симптом**: новые пользователи качают DMG из Safari → первый запуск показывает «Apple could not verify VoiceInk is free of malware» с Done/Move to Trash → требует System Settings → Privacy & Security → Open Anyway. Сравнение с Dion (другой DMG-distributed app) показало что friendly диалог «App downloaded from Internet — Open?» возможен на той же macOS 15.7.4.
+
+**Стадия 1 (0.5.009, частично)**: `codesign --verify --deep --strict` выявил `Disallowed xattr com.apple.FinderInfo found on Sparkle.framework/Versions/B/Updater.app`. iCloud File Provider клеит `com.apple.FinderInfo` + `com.apple.fileprovider.fpfs#P` на каждый файл когда .app копируется в iCloud Drive. Build pipeline переписан: ВСЁ остаётся в `/tmp` (BUNDLE → FINAL_BUNDLE → DMG creation → notarize → staple), в iCloud копируется только готовый DMG + dev-mirror .app в конце. `codesign --strict` passes — но первый-launch диалог всё ещё unfriendly.
+
+**Стадия 2 (0.5.010, корневой фикс)**: удалили `com.apple.security.cs.disable-library-validation` из `entitlements.plist`. Apple macOS 15 Reputation Engine факторит это entitlement в risk assessment и эскалирует к strict диалогу даже у полностью notarized apps. Все наши bundled libs/.so/Sparkle internals подписаны нашим team `94QK2GK5GT` через `sign_one` в build-app.sh, поэтому library validation проходит нативно. Verify: friendly диалог появился на 0.5.010, оба бандл-сервера (`whisper-server --help`, `llama-server --version`) запускаются без ошибок без этого entitlement.
+
+**Оставшиеся entitlements** (нужны для GGML Metal compute): `com.apple.security.cs.allow-jit`, `com.apple.security.cs.allow-unsigned-executable-memory`. Не триггерят strict диалог (проверено).
 
 ## Процесс разработки
 
