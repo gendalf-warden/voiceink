@@ -6,31 +6,62 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.010</title>
-            <pubDate>Tue, 02 Jun 2026 11:25:21 +0000</pubDate>
-            <sparkle:version>0.5.010</sparkle:version>
-            <sparkle:shortVersionString>0.5.010</sparkle:shortVersionString>
+            <title>Version 0.5.013</title>
+            <pubDate>Fri, 05 Jun 2026 22:38:51 +0000</pubDate>
+            <sparkle:version>0.5.013</sparkle:version>
+            <sparkle:shortVersionString>0.5.013</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
-<h3>Fixed</h3>
+<h3>Added — field diagnostics</h3>
+<p>Triaging Anna&#x27;s report meant *inferring* almost everything (version from bundle</p>
+<p>paths, &quot;Thank you.&quot; from a <code>[10 chars]</code> count, silence from a duration/length</p>
+<p>ratio). These logs make the next report readable instead of guessable. Privacy</p>
+<p>principle: dropped/filtered text is rejected junk (never inserted), so it&#x27;s</p>
+<p>logged verbatim; real dictated text stays behind the <code>logTranscriptions</code> opt-in.</p>
 <ul>
-  <li><strong>Unfriendly Gatekeeper first-launch dialog (continued from 0.5.009)</strong>: despite</li>
+  <li><strong>Startup diagnostic banner</strong>: one block per launch with app version+build,</li>
 </ul>
-<p>  passing <code>codesign --verify --deep --strict</code> cleanly and being fully notarized</p>
-<p>  + stapled, the app still showed &quot;Apple could not verify VoiceInk is free of</p>
-<p>  malware. Done / Move to Trash&quot; on macOS 15 instead of the friendly &quot;App</p>
-<p>  downloaded from Internet — Open?&quot;. Hypothesis: macOS 15&#x27;s Gatekeeper folds</p>
-<p>  the <code>com.apple.security.cs.disable-library-validation</code> entitlement into its</p>
-<p>  first-launch risk assessment. We removed that entitlement — all bundled</p>
-<p>  dylibs / .so / Sparkle.framework internals are re-signed by <code>build-app.sh</code></p>
-<p>  with our Developer ID (Team 94QK2GK5GT), so library validation succeeds</p>
-<p>  natively without the disable flag. The entitlement was a relic from when we</p>
-<p>  shipped homebrew-signed libs without re-signing them.</p>]]></description>
+<p>  chip model (→ which ggml CPU backend applies), macOS version, RAM, microphone</p>
+<p>  &amp; accessibility permission states, hotkey, modes, and — crucially for the</p>
+<p>  &quot;no backends&quot; class — the list of ggml backend <code>.so</code> bundled next to</p>
+<p>  llama-server (<code>NONE ⚠️</code> if missing).</p>
+<ul>
+  <li><strong>Recording stats</strong>: every stop logs duration + peak amplitude, so a</li>
+</ul>
+<p>  silence-driven hallucination is obvious (<code>4.8s, peak 0.004</code>). Skip reasons</p>
+<p>  (too-short / silent) now include the numbers.</p>
+<ul>
+  <li><strong>Filter/drop visibility</strong>: <code>Transcriber</code> logs what the hallucination filter</li>
+</ul>
+<p>  removed (<code>dropped entire output: &quot;Thank you.&quot;</code>); the pipeline logs when a</p>
+<p>  transcription is empty after filtering (the phantom-text path) — confirms the</p>
+<p>  0.5.011 fixes are firing in the field.</p>
+<ul>
+  <li><strong>Hotkey trigger classification</strong>: logs <code>Fn held ≥300ms → push-to-talk</code> vs</li>
+</ul>
+<p>  <code>Fn+key combo — push-to-talk cancelled</code>, so accidental triggers are visible.</p>
+<ul>
+  <li><strong>Redacted transcription signature</strong>: <code>[N chars, M words]</code> instead of bare</li>
+</ul>
+<p>  <code>[N chars]</code> when full-text logging is off.</p>
+
+<h3>Fixed — build warnings (0-warnings gate)</h3>
+<ul>
+  <li>Cleared all 6 pre-existing <code>#SendableClosureCaptures</code> warnings so <code>develop</code></li>
+</ul>
+<p>  passes CLAUDE.md&#x27;s &quot;swift build — 0 warnings&quot; gate on a *clean* build</p>
+<p>  (<code>rm -rf .build &amp;&amp; swift build</code>). <code>AppDelegate</code> error-tail now uses</p>
+<p>  <code>Task.sleep</code> + <code>MainActor.run</code> instead of a <code>@Sendable</code></p>
+<p>  <code>DispatchQueue.asyncAfter</code> closure; <code>AudioConverter</code>&#x27;s <code>requestMediaDataWhenReady</code></p>
+<p>  callback (which runs serially on a dedicated queue) rebinds its AVFoundation</p>
+<p>  objects <code>nonisolated(unsafe)</code>. No behavior change. (Note: only 2 showed in</p>
+<p>  incremental builds — the other 4 in <code>AudioConverter</code> only surface on a clean</p>
+<p>  build because that file isn&#x27;t otherwise recompiled.)</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.010.dmg"
-                length="12979910"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.013.dmg"
+                length="12989278"
                 type="application/octet-stream"
-                sparkle:edSignature="nKo5rbau/v9eiFoRneBGpuef+1f3H4Gj5WXqdpLW6OPBXcJF2gDwr7pBmP4Zz97bGV2xtN0KNmJrSxZ/9pEeCg==" />
+                sparkle:edSignature="rqCsRiND8gvNfPNLLmjAgEK7yEzQ2x/4UO80Z8X6bjikBLyzPbkHskYmjX2yMbmqdhiWFCouL2LCT9PJ1UmOBg==" />
         </item>
     </channel>
 </rss>
