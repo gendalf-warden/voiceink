@@ -1,6 +1,10 @@
 .build/
 VoiceInk.app/
 VoiceInk*.dmg
+# iCloud Drive sync-conflict copies ("<name> 2", "<name> 2.app", "<name> 2.dmg")
+* 2/
+* 2.app/
+* 2.dmg
 icon-source.png
 icon-1024.png
 *.wav
