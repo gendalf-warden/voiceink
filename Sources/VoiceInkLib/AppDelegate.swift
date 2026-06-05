@@ -298,6 +298,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
         recordingStartTime = nil
 
+        // Skip silent recordings (accidental Fn-hold over silence) — Whisper hallucinates
+        // phantom phrases on silence and pastes them into the user's document.
+        if AudioRecorder.isSilent(url: audioURL) {
+            log("Recording was silent — skipping (prevents Whisper hallucination)")
+            try? FileManager.default.removeItem(at: audioURL)
+            state = .idle
+            return
+        }
+
         state = .transcribing
 
         Task { [weak self] in

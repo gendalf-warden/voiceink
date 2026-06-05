@@ -4,7 +4,7 @@
 
 **Расположение**: `/Users/dima/CLAUDE PROJECTS/VoiceInk` (вынесен из iCloud Drive 2026-06 — см. «Важные технические детали»). Бэкап = GitHub `gendalf-warden/voiceink`, НЕ iCloud.
 
-Текущая версия: см. файл `VERSION` (на момент написания — `0.5.010`).
+Текущая версия: см. файл `VERSION` (на момент написания — `0.5.011`).
 
 ## Сборка
 
@@ -174,6 +174,23 @@ open VoiceInk.app        # запуск бандла
 **Стадия 2 (0.5.010, корневой фикс)**: удалили `com.apple.security.cs.disable-library-validation` из `entitlements.plist`. Apple macOS 15 Reputation Engine факторит это entitlement в risk assessment и эскалирует к strict диалогу даже у полностью notarized apps. Все наши bundled libs/.so/Sparkle internals подписаны нашим team `94QK2GK5GT` через `sign_one` в build-app.sh, поэтому library validation проходит нативно. Verify: friendly диалог появился на 0.5.010, оба бандл-сервера (`whisper-server --help`, `llama-server --version`) запускаются без ошибок без этого entitlement.
 
 **Оставшиеся entitlements** (нужны для GGML Metal compute): `com.apple.security.cs.allow-jit`, `com.apple.security.cs.allow-unsigned-executable-memory`. Не триггерят strict диалог (проверено).
+
+### Phantom "Thank you" / "click click click" в документах (баг Анны)
+**Симптом**: пользователь оформляет доки (НЕ диктует), а в текст сами по себе вставляются «Thank you.» и «click click click click» — посреди слова («Matosinhos» → «M Thank you. atosinhos»).
+
+**Диагноз по логу** (`voiceink_Anna.log`): хоткей = `Fn` (дефолт). Цепочка из 3 звеньев: (1) `Fn` удерживается >300ms в составе комбо (`Fn`+стрелки, `Fn`+Delete, `Fn`+F-клавиши) → push-to-talk стартует запись; (2) запись ловит тишину/стук клавиш → Whisper галлюцинирует (тишина → «Thank you.» = ровно 10 символов; в логе 5.2s→7, 6.6s→10, 2.2s→10 символов; стук клавиш → «click click click»); (3) `removeHallucinations()` не ловил эти паттерны, а LLM-очистка у Анны мертва (bundled llama падает на старте, см. ниже).
+
+**Фикс (0.5.011)**, три независимых:
+- `HotkeyManager`: в `Fn`-only режиме нажатие любой клавиши пока `Fn` удерживается → это `Fn`+комбо, не PTT → `fnComboUsed=true`, таймер записи отменяется.
+- `AudioRecorder.isSilent(url:)`: пик амплитуды по всему файлу ниже speech-floor (0.01) → запись тишины, `AppDelegate` дропает до транскрипции.
+- `Transcriber.removeHallucinations()`: добавлены standalone-only фразы (`thank you`, `thanks`, `bye`, `спасибо`…, не вырезаются в середине предложения), `isRepeatedWordLoop()` (один короткий токен ≥3× = петля повторов), и RU «спасибо за просмотр».
+
+### Bundled llama-server "no backends are loaded" на машине пользователя (НЕ исправлено, отдельный баг)
+**Симптом**: на машине Анны (и, вероятно, не только) bundled llama-server падает на КАЖДОМ старте — stderr `no backends are loaded` + `fitting params to device memory`, exit 1. → фолбэк на Ollama (не установлена) → LLM post-processing не работает ВООБЩЕ, всегда raw Whisper.
+
+**Класс бага**: тот же «no backends are loaded» что и исторический (GGML_BACKEND_PATH / .so бэкенды), но всплыл заново с более новой версией bundled llama.cpp (отсюда новая строка `fitting params to device memory`, флаг `-fit`). Whisper-server при этом стартует нормально — проблема именно в llama-бандле.
+
+**Что нужно**: investigation сборки/бандлинга — копируются ли ggml backend `.so` (Metal/CPU/BLAS) + libomp в `lib-llama/` для НОВОЙ версии llama, и резолвится ли `GGML_BACKEND_PATH`. Возможно изменилась структура бэкендов в новом llama.cpp.
 
 ## Процесс разработки
 

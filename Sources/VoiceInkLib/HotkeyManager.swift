@@ -21,6 +21,9 @@ public class HotkeyManager {
     private var fnPressTime: Date?
     private var fnHoldTimer: DispatchWorkItem?
     private var fnRecordingStarted = false
+    /// Set when another key is pressed while Fn is held — marks the gesture as a
+    /// Fn+<key> combo (navigation, forward-delete, F-keys), not push-to-talk.
+    private var fnComboUsed = false
 
     /// True when hotkey is Fn key alone (no regular key, just the modifier)
     private var isFnOnly: Bool {
@@ -100,6 +103,16 @@ public class HotkeyManager {
         // Short tap (<300ms) → pass through to system (keyboard switch)
         // Long hold (≥300ms) → push-to-talk recording
         if isFnOnly {
+            // A regular key pressed while Fn is held → this is a Fn+<key> combo
+            // (e.g. Fn+arrows to navigate, Fn+Delete forward-delete, Fn+F-keys),
+            // NOT push-to-talk. Cancel the pending recording so we don't transcribe
+            // ambient noise during normal document editing.
+            if type == .keyDown && isKeyDown && !fnRecordingStarted && !fnComboUsed {
+                fnComboUsed = true
+                fnHoldTimer?.cancel()
+                fnHoldTimer = nil
+                return event
+            }
             if type == .flagsChanged && eventKeyCode == KeyMap.fnKeyCode {
                 let fnPressed = eventFlags.contains(Self.fnFlag)
                 if fnPressed && !isKeyDown {
@@ -107,9 +120,10 @@ public class HotkeyManager {
                     isKeyDown = true
                     fnPressTime = Date()
                     fnRecordingStarted = false
+                    fnComboUsed = false
 
                     let work = DispatchWorkItem { [weak self] in
-                        guard let self = self, self.isKeyDown else { return }
+                        guard let self = self, self.isKeyDown, !self.fnComboUsed else { return }
                         self.fnRecordingStarted = true
                         self.onKeyDown?()
                     }
@@ -132,7 +146,8 @@ public class HotkeyManager {
                             self?.onKeyUp?()
                         }
                     }
-                    // Short tap: nothing to do, system handles keyboard switch
+                    // Short tap or Fn+key combo: nothing to do, system handles the rest
+                    fnComboUsed = false
                     return event
                 }
             }
@@ -215,6 +230,7 @@ public class HotkeyManager {
         self.fnHoldTimer?.cancel()
         self.fnHoldTimer = nil
         self.fnRecordingStarted = false
+        self.fnComboUsed = false
         log("Hotkey updated to keyCode=\(keyCode) modifiers=\(modifiers)", tag: "HotkeyManager")
     }
 

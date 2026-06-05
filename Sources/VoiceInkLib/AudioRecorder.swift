@@ -131,6 +131,26 @@ public class AudioRecorder {
         }
     }
 
+    /// True when the recording carries no real speech — its peak amplitude across the
+    /// whole file stays below the audible-speech floor. Recording silence and feeding it
+    /// to Whisper produces phantom phrases ("Thank you.", "Продолжение следует…") that get
+    /// pasted into whatever the user is typing. We drop such clips before transcription.
+    /// Threshold (0.01) sits well below normal speech peaks (~0.1–0.9) but above room tone.
+    public static func isSilent(url: URL) -> Bool {
+        guard let file = try? AVAudioFile(forReading: url) else { return false }
+        let totalFrames = AVAudioFrameCount(file.length)
+        guard totalFrames > 0 else { return true }
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: totalFrames) else { return false }
+        do { try file.read(into: buffer) } catch { return false }
+        guard let channelData = buffer.floatChannelData?[0] else { return false }
+
+        let speechFloor: Float = 0.01
+        for i in 0..<Int(totalFrames) {
+            if abs(channelData[i]) > speechFloor { return false }
+        }
+        return true
+    }
+
     public static func requestPermission(completion: @escaping (Bool) -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:

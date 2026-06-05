@@ -67,6 +67,39 @@ final class TranscriberTests: XCTestCase {
         XCTAssertEqual(Transcriber.removeHallucinations("  Продолжение следует... "), "")
     }
 
+    func testRemovesStandaloneThankYou() {
+        // Bare "Thank you." on its own is a silence hallucination (Anna's bug)
+        XCTAssertEqual(Transcriber.removeHallucinations("Thank you."), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("thank you"), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("  Thank you  "), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("Thanks"), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("Bye bye"), "")
+    }
+
+    func testKeepsThankYouInSentence() {
+        // "thank you" as standalone-only must NOT be stripped as a trailing tail
+        let input = "I really want to thank you for this."
+        XCTAssertEqual(Transcriber.removeHallucinations(input), input)
+    }
+
+    func testRemovesRepeatedWordLoop() {
+        // Keyboard clicks transcribed as a repetition loop (Anna's bug)
+        XCTAssertEqual(Transcriber.removeHallucinations("click click click click"), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("Click click click."), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("так так так так"), "")
+    }
+
+    func testKeepsNonLoopText() {
+        // Fewer than 3 repeats, or distinct words — keep
+        XCTAssertEqual(Transcriber.removeHallucinations("no no"), "no no")
+        XCTAssertEqual(Transcriber.removeHallucinations("так точно"), "так точно")
+    }
+
+    func testRemovesSpasiboZaProsmotr() {
+        XCTAssertEqual(Transcriber.removeHallucinations("Спасибо за просмотр"), "")
+        XCTAssertEqual(Transcriber.removeHallucinations("Вот текст. Спасибо за просмотр."), "Вот текст.")
+    }
+
     // MARK: - toISOCode
 
     func testISOCodeFullNames() {

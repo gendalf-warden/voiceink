@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.011] - 2026-06-06
+
+Phantom text reported by a user (Anna): while editing documents — not dictating
+— phrases like "Thank you." and "click click click click" inserted themselves
+mid-word (e.g. "Matosinhos" became "M Thank you. atosinhos"). Log analysis
+showed the root-cause chain and three independent fixes.
+
+### Fixed
+- **Accidental Fn-hold triggering recording during normal editing**: with the
+  default `Fn`-only hotkey, holding `Fn` ≥300ms as part of a combo (`Fn`+arrows
+  for navigation, `Fn`+Delete for forward-delete, `Fn`+F-keys) started a
+  push-to-talk recording. `HotkeyManager` now cancels the pending recording the
+  moment another key is pressed while `Fn` is held — a `Fn`+<key> combo is no
+  longer mistaken for push-to-talk.
+- **Whisper hallucinating on silence/noise and pasting it into the document**:
+  multi-second recordings of silence produced phantom phrases (5–6s of audio →
+  a bare "Thank you."). `AudioRecorder.isSilent(url:)` now detects recordings
+  whose peak amplitude never crosses the speech floor and `AppDelegate` drops
+  them before transcription.
+- **`removeHallucinations()` missing common artifacts**: it caught "thank you
+  for watching" but not a standalone "Thank you", nor repetition loops
+  ("click click click click" from keyboard noise), nor RU "Спасибо за просмотр".
+  Added standalone-only phrase removal (never stripped mid-sentence so
+  "…thank you for this." survives) and a repeated-word-loop detector.
+
+### Known issues (not fixed here)
+- **Bundled llama-server crashes on startup on some machines** (`no backends
+  are loaded`, exit 1) → LLM post-processing silently falls back to Ollama
+  (usually absent) → raw Whisper text is used with no cleanup. Same class as
+  the historical "no backends are loaded" bug but resurfaced with the newer
+  bundled llama.cpp (note the `fitting params to device memory` log line).
+  Needs a build/bundling investigation (`GGML_BACKEND_PATH` / backend `.so`
+  bundling for the new llama version).
+
 ## [0.5.010] - 2026-06-02
 
 ### Fixed

@@ -457,7 +457,9 @@ public class Transcriber {
     /// These are phrases Whisper was trained on (captions, subtitles) and emits
     /// when it has nothing to transcribe.
     public static func removeHallucinations(_ text: String) -> String {
-        // Known hallucination patterns (case-insensitive, matched at end OR as standalone)
+        // Patterns safe to strip BOTH as a trailing tail after real text AND as a
+        // standalone chunk. These are caption/subtitle artifacts that essentially
+        // never occur inside genuine dictation, so stripping mid-text is safe.
         let patterns = [
             "продолжение следует",
             "продолжение следует...",
@@ -468,13 +470,32 @@ public class Transcriber {
             "корректор субтитров",
             "thanks for watching",
             "thank you for watching",
+            "спасибо за просмотр",
             "субтитры создавал",
             "субтитры сделал",
         ]
+        // Patterns removed ONLY when they are the entire output (standalone).
+        // These (e.g. a bare "thank you") legitimately end real sentences, so we must
+        // never strip them as a trailing tail — only when the whole chunk is just this.
+        let standaloneOnly = [
+            "you",
+            "thank you",
+            "thanks",
+            "bye",
+            "bye bye",
+            "пока",
+            "спасибо",
+        ]
         var result = text
-        // Remove "you" or "You." if the entire output is just that (silence hallucination)
-        let trimmed = result.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
-        if trimmed.lowercased() == "you" {
+        // A whole output made of one short word repeated (≥3×) is a Whisper repetition
+        // loop on noise — e.g. keyboard clicks transcribed as "click click click click".
+        if isRepeatedWordLoop(result) {
+            return ""
+        }
+        // Remove standalone-only hallucinations: drop the whole output if (ignoring
+        // surrounding whitespace/punctuation) it equals one of these phrases.
+        let bareTrimmed = result.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        if standaloneOnly.contains(bareTrimmed.lowercased()) {
             return ""
         }
         // Remove hallucination phrases. Two cases:
@@ -503,6 +524,20 @@ public class Transcriber {
             }
         }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True when the entire output is one short token repeated ≥3 times — a Whisper
+    /// repetition loop on noise (e.g. keyboard clicks → "click click click click").
+    /// Conservative: requires a single distinct token, repeated, and short (≤12 chars)
+    /// so real phrases like "ha ha ha" survive only if genuinely repeated nonsense.
+    static func isRepeatedWordLoop(_ text: String) -> Bool {
+        let tokens = text
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard tokens.count >= 3 else { return false }
+        guard let first = tokens.first, first.count <= 12 else { return false }
+        return tokens.allSatisfy { $0 == first }
     }
 
     @discardableResult
