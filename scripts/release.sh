@@ -198,6 +198,13 @@ EOF
 
 echo "[5/6] Publishing to gh-pages (GH Pages)..."
 PAGES_DIR="/tmp/voiceink-gh-pages"
+# Discard a corrupt/incomplete cached clone (e.g. from an interrupted prior run):
+# a bare `[ -d .git ]` check passes on a broken repo, then `git -C ... fetch`
+# aborts with "not a git repository" and the publish dies mid-way (hit on 0.5.013).
+if [ -e "$PAGES_DIR" ] && ! git -C "$PAGES_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "       cached clone at $PAGES_DIR is invalid — re-cloning"
+    rm -rf "$PAGES_DIR"
+fi
 if [ -d "$PAGES_DIR/.git" ]; then
     git -C "$PAGES_DIR" fetch --quiet origin gh-pages
     git -C "$PAGES_DIR" reset --quiet --hard origin/gh-pages
