@@ -111,6 +111,7 @@ public class HotkeyManager {
                 fnComboUsed = true
                 fnHoldTimer?.cancel()
                 fnHoldTimer = nil
+                log("Fn+key combo (keyCode=\(eventKeyCode)) — push-to-talk cancelled", tag: "HotkeyManager")
                 return event
             }
             if type == .flagsChanged && eventKeyCode == KeyMap.fnKeyCode {
@@ -125,6 +126,7 @@ public class HotkeyManager {
                     let work = DispatchWorkItem { [weak self] in
                         guard let self = self, self.isKeyDown, !self.fnComboUsed else { return }
                         self.fnRecordingStarted = true
+                        log("Fn held ≥\(Int(Self.fnHoldThreshold * 1000))ms → push-to-talk recording", tag: "HotkeyManager")
                         self.onKeyDown?()
                     }
                     fnHoldTimer = work

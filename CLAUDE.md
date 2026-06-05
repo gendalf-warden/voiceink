@@ -4,7 +4,7 @@
 
 **Расположение**: `/Users/dima/CLAUDE PROJECTS/VoiceInk` (вынесен из iCloud Drive 2026-06 — см. «Важные технические детали»). Бэкап = GitHub `gendalf-warden/voiceink`, НЕ iCloud.
 
-Текущая версия: см. файл `VERSION` (на момент написания — `0.5.012`).
+Текущая версия: см. файл `VERSION` (на момент написания — `0.5.013`).
 
 ## Сборка
 
@@ -69,7 +69,7 @@ open VoiceInk.app        # запуск бандла
   - `TranscriptionResultWindowController.swift` — окно результата транскрипции с Copy
   - `TextInserter.swift` — Clipboard + CGEvent Cmd+V, layout-aware
   - `KeyMap.swift` — key codes ↔ names, modifier symbols
-  - `Logger.swift` — singleton, file rotation 1MB
+  - `Logger.swift` — singleton, file rotation 1MB. `~/.config/voiceink/voiceink.log` (+ `.old`). Каждый запуск пишет diagnostic-баннер (версия+build, чип, macOS, RAM, mic/accessibility пермишены, хоткей, режимы, список bundled ggml `.so` рядом с llama-server). Field-логи: длительность+пик амплитуды записи, что вырезал hallucination-фильтр (rejected junk логируется verbatim), классификация хоткея (PTT vs Fn+combo). Реальный текст диктовки — только под `logTranscriptions` (privacy), иначе `[N chars, M words]`
   - `AppState.swift` — enum: idle/recording/transcribing/postProcessing/error
   - `StringExtensions.swift` — `stripCombiningAccents()` и другие расширения String
   - `AsyncSemaphore.swift` — actor-based async семафор для concurrency limit

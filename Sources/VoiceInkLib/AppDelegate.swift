@@ -89,14 +89,37 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// One self-contained block per launch with everything needed to triage a field
+    /// report without guessing: version/build, chip (→ which ggml CPU backend), macOS,
+    /// RAM, permission states, hotkey, modes, and resolved binary/model paths.
+    private func logStartupDiagnostics() {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let accGranted = AXIsProcessTrusted()
+        log("=== VoiceInk \(version) (build \(build)) starting ===")
+        log("Machine: \(Config.chipModel), macOS \(ProcessInfo.processInfo.operatingSystemVersionString), \(Config.systemRAMGB) GB RAM")
+        log("Permissions: microphone=\(micGranted ? "granted" : "DENIED"), accessibility=\(accGranted ? "granted" : "DENIED")")
+        log("Hotkey: \(config.hotkeyDescription) | dictation: \(config.dictationMode.rawValue), file: \(config.fileMode.rawValue), logTranscriptions: \(config.logTranscriptions)")
+        log("Whisper model: \(config.whisperModelPath.isEmpty ? "—" : config.whisperModelPath)")
+        log("LLM server: \(config.llamaServerPath.isEmpty ? "—" : config.llamaServerPath)")
+        // Confirm ggml backend plugins are bundled next to llama-server — their
+        // absence is the root cause of the "no backends are loaded" crash.
+        if !config.llamaServerPath.isEmpty {
+            let serverDir = (config.llamaServerPath as NSString).deletingLastPathComponent
+            let backends = ((try? FileManager.default.contentsOfDirectory(atPath: serverDir)) ?? [])
+                .filter { $0.hasSuffix(".so") }.sorted()
+            log("LLM ggml backends bundled: \(backends.isEmpty ? "NONE ⚠️" : backends.joined(separator: ", "))")
+        }
+    }
+
     private func startApp() {
         // Show splash immediately
         splash = SplashWindowController()
         splash?.show()
         splash?.setMilestone(0)
-        log("Whisper CLI: \(config.whisperCliPath)")
-        log("Model: \(config.whisperModelPath)")
-        log("RAM: \(Config.systemRAMGB) GB, dictation: \(config.dictationMode.rawValue), file: \(config.fileMode.rawValue)")
+        logStartupDiagnostics()
 
         // Status bar (lightweight, stays on main thread)
         statusBar = StatusBarController()
@@ -286,22 +309,26 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Skip very short recordings (accidental Fn tap)
-        if let startTime = recordingStartTime {
-            let duration = Date().timeIntervalSince(startTime)
-            if duration < minRecordingDuration {
-                log("Recording too short (\(String(format: "%.2f", duration))s < \(minRecordingDuration)s) — skipping")
-                try? FileManager.default.removeItem(at: audioURL)
-                state = .idle
-                return
-            }
-        }
+        let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? -1
         recordingStartTime = nil
+
+        // Diagnostic: duration + peak amplitude make silence-driven hallucinations
+        // visible in field logs ("4.8s, peak 0.004" = recorded silence → phantom text).
+        let peak = AudioRecorder.peakAmplitude(url: audioURL)
+        log("Recording stopped: \(String(format: "%.1f", duration))s, peak amplitude \(String(format: "%.3f", peak))")
+
+        // Skip very short recordings (accidental Fn tap)
+        if duration >= 0 && duration < minRecordingDuration {
+            log("Recording too short (\(String(format: "%.2f", duration))s < \(minRecordingDuration)s) — skipping")
+            try? FileManager.default.removeItem(at: audioURL)
+            state = .idle
+            return
+        }
 
         // Skip silent recordings (accidental Fn-hold over silence) — Whisper hallucinates
         // phantom phrases on silence and pastes them into the user's document.
-        if AudioRecorder.isSilent(url: audioURL) {
-            log("Recording was silent — skipping (prevents Whisper hallucination)")
+        if peak >= 0 && peak < AudioRecorder.speechFloor {
+            log("Recording was silent (peak \(String(format: "%.3f", peak)) < \(AudioRecorder.speechFloor)) — skipping (prevents Whisper hallucination)")
             try? FileManager.default.removeItem(at: audioURL)
             state = .idle
             return
@@ -324,10 +351,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                     log("Replacements applied: '\(asrText)' → '\(rawText)'")
                 }
 
-                let rawDisplay = self.config.logTranscriptions ? rawText : "[\(rawText.count) chars]"
+                // Redacted form still carries shape (chars + words) for triage when
+                // full-text logging is off; full text only with the privacy opt-in.
+                let wordCount = rawText.split { $0 == " " || $0 == "\n" }.count
+                let rawDisplay = self.config.logTranscriptions ? rawText : "[\(rawText.count) chars, \(wordCount) words]"
                 log("Raw (\(String(format: "%.1f", asrTime))s): \(rawDisplay)")
 
                 guard !rawText.isEmpty else {
+                    // Whisper produced only hallucination/noise that the filters stripped
+                    // to nothing → insert nothing (this is the phantom-text path).
+                    log("Transcription empty after hallucination/silence filtering — nothing inserted")
                     await MainActor.run { self.state = .idle }
                     return
                 }

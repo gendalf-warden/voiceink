@@ -165,6 +165,18 @@ public struct Config: Codable {
     /// System RAM in GB
     public static let systemRAMGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
 
+    /// CPU/chip brand string (e.g. "Apple M3 Max"). For diagnostics — the bundled
+    /// ggml CPU backend variant (apple_m1/m2_m3/m4) is chosen by chip, so a field
+    /// log must record which chip the user has.
+    public static var chipModel: String {
+        var size = 0
+        sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
+        guard size > 0 else { return "unknown" }
+        var brand = [CChar](repeating: 0, count: size)
+        sysctlbyname("machdep.cpu.brand_string", &brand, &size, nil, 0)
+        return String(cString: brand)
+    }
+
     /// Human-readable hotkey description
     public var hotkeyDescription: String {
         KeyMap.hotkeyDescription(keyCode: hotkeyKeyCode, modifiers: hotkeyModifiers)

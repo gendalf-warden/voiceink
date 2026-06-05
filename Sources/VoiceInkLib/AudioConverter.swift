@@ -56,6 +56,13 @@ public class AudioConverter {
         // Process samples on a background queue
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let queue = DispatchQueue(label: "com.voiceink.audioconverter")
+            // AVFoundation objects aren't Sendable, but this callback is invoked serially
+            // on `queue`, so the captures are safe. Rebind as nonisolated(unsafe) to
+            // silence #SendableClosureCaptures without changing the (correct) behavior.
+            nonisolated(unsafe) let writerInput = writerInput
+            nonisolated(unsafe) let readerOutput = readerOutput
+            nonisolated(unsafe) let reader = reader
+            nonisolated(unsafe) let writer = writer
             writerInput.requestMediaDataWhenReady(on: queue) {
                 while writerInput.isReadyForMoreMediaData {
                     if let sampleBuffer = readerOutput.copyNextSampleBuffer() {

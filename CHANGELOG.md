@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.013] - 2026-06-06
+
+### Added — field diagnostics
+Triaging Anna's report meant *inferring* almost everything (version from bundle
+paths, "Thank you." from a `[10 chars]` count, silence from a duration/length
+ratio). These logs make the next report readable instead of guessable. Privacy
+principle: dropped/filtered text is rejected junk (never inserted), so it's
+logged verbatim; real dictated text stays behind the `logTranscriptions` opt-in.
+- **Startup diagnostic banner**: one block per launch with app version+build,
+  chip model (→ which ggml CPU backend applies), macOS version, RAM, microphone
+  & accessibility permission states, hotkey, modes, and — crucially for the
+  "no backends" class — the list of ggml backend `.so` bundled next to
+  llama-server (`NONE ⚠️` if missing).
+- **Recording stats**: every stop logs duration + peak amplitude, so a
+  silence-driven hallucination is obvious (`4.8s, peak 0.004`). Skip reasons
+  (too-short / silent) now include the numbers.
+- **Filter/drop visibility**: `Transcriber` logs what the hallucination filter
+  removed (`dropped entire output: "Thank you."`); the pipeline logs when a
+  transcription is empty after filtering (the phantom-text path) — confirms the
+  0.5.011 fixes are firing in the field.
+- **Hotkey trigger classification**: logs `Fn held ≥300ms → push-to-talk` vs
+  `Fn+key combo — push-to-talk cancelled`, so accidental triggers are visible.
+- **Redacted transcription signature**: `[N chars, M words]` instead of bare
+  `[N chars]` when full-text logging is off.
+
 ## [0.5.012] - 2026-06-06
 
 ### Fixed

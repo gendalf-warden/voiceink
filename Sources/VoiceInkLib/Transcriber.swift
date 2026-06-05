@@ -252,7 +252,26 @@ public class Transcriber {
             responseFormat: "text"
         )
         let stripped = Transcriber.stripForeignChars(text, language: language)
-        return Transcriber.removeHallucinations(stripped)
+        let cleaned = Transcriber.removeHallucinations(stripped)
+        Transcriber.logFilterAction(before: stripped, after: cleaned)
+        return cleaned
+    }
+
+    /// Log what the hallucination/foreign-char filter removed. The removed text is
+    /// rejected junk (never inserted into the user's document), so logging it verbatim
+    /// is privacy-safe and is exactly what's needed to diagnose phantom-text reports.
+    /// Truncated to keep the log readable. No-op when nothing changed.
+    static func logFilterAction(before: String, after: String) {
+        guard before != after else { return }
+        func clip(_ s: String) -> String {
+            let one = s.replacingOccurrences(of: "\n", with: " ")
+            return one.count > 80 ? String(one.prefix(80)) + "…" : one
+        }
+        if after.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log("Hallucination filter dropped entire output: \"\(clip(before))\"", tag: "Transcriber")
+        } else {
+            log("Hallucination filter trimmed: \"\(clip(before))\" → \"\(clip(after))\"", tag: "Transcriber")
+        }
     }
 
     /// Transcribe and detect language. Used on first chunk of a file to lock language for subsequent chunks.
@@ -264,7 +283,9 @@ public class Transcriber {
             language: "auto",
             responseFormat: "verbose_json"
         )
-        return (Transcriber.removeHallucinations(text), Transcriber.toISOCode(language))
+        let cleaned = Transcriber.removeHallucinations(text)
+        Transcriber.logFilterAction(before: text, after: cleaned)
+        return (cleaned, Transcriber.toISOCode(language))
     }
 
     /// Wrap `sendInference` with a watchdog: on URL timeout, assume whisper-server is hung

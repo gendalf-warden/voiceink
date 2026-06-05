@@ -131,24 +131,36 @@ public class AudioRecorder {
         }
     }
 
-    /// True when the recording carries no real speech — its peak amplitude across the
-    /// whole file stays below the audible-speech floor. Recording silence and feeding it
-    /// to Whisper produces phantom phrases ("Thank you.", "Продолжение следует…") that get
-    /// pasted into whatever the user is typing. We drop such clips before transcription.
-    /// Threshold (0.01) sits well below normal speech peaks (~0.1–0.9) but above room tone.
-    public static func isSilent(url: URL) -> Bool {
-        guard let file = try? AVAudioFile(forReading: url) else { return false }
+    /// Peak amplitude across the whole recording (0…1). Returns -1 if unreadable.
+    /// Used both for the silence gate and for diagnostic logging.
+    public static func peakAmplitude(url: URL) -> Float {
+        guard let file = try? AVAudioFile(forReading: url) else { return -1 }
         let totalFrames = AVAudioFrameCount(file.length)
-        guard totalFrames > 0 else { return true }
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: totalFrames) else { return false }
-        do { try file.read(into: buffer) } catch { return false }
-        guard let channelData = buffer.floatChannelData?[0] else { return false }
+        guard totalFrames > 0 else { return 0 }
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: totalFrames) else { return -1 }
+        do { try file.read(into: buffer) } catch { return -1 }
+        guard let channelData = buffer.floatChannelData?[0] else { return -1 }
 
-        let speechFloor: Float = 0.01
+        var peak: Float = 0
         for i in 0..<Int(totalFrames) {
-            if abs(channelData[i]) > speechFloor { return false }
+            let amp = abs(channelData[i])
+            if amp > peak { peak = amp }
         }
-        return true
+        return peak
+    }
+
+    /// Speech-floor for the silence gate: peaks below this are room tone / silence.
+    /// Well below normal speech peaks (~0.1–0.9) but above ambient noise.
+    public static let speechFloor: Float = 0.01
+
+    /// True when the recording carries no real speech — its peak amplitude across the
+    /// whole file stays below the speech floor. Recording silence and feeding it to
+    /// Whisper produces phantom phrases ("Thank you.", "Продолжение следует…") that get
+    /// pasted into whatever the user is typing. We drop such clips before transcription.
+    public static func isSilent(url: URL) -> Bool {
+        let peak = peakAmplitude(url: url)
+        guard peak >= 0 else { return false }   // unreadable → don't drop
+        return peak < speechFloor
     }
 
     public static func requestPermission(completion: @escaping (Bool) -> Void) {
