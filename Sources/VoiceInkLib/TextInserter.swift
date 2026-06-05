@@ -13,31 +13,99 @@ public class TextInserter {
     /// Spec: http://nspasteboard.org
     private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
 
+    /// Delay before restoring the user's previous clipboard contents.
+    /// Was 150 ms — too short under memory pressure or in heavy apps (the target
+    /// app hadn't consumed the paste yet, so the restore raced ahead and the
+    /// app ended up pasting whatever was on the clipboard *before* our dictation).
+    /// 600 ms is comfortably above the practical paste window for every app
+    /// we've seen; on a healthy system the user's clipboard manager (Maccy /
+    /// Raycast / Paste) won't notice the brief flicker either way.
+    private static let clipboardRestoreDelay: TimeInterval = 0.6
+
     public func insert(text: String) {
         let insertedText = text + " "
         lastInsertedLength = insertedText.count
         let pasteboard = NSPasteboard.general
 
-        // Save current clipboard
-        let previousContents = pasteboard.string(forType: .string)
+        // Snapshot the user's clipboard — ALL items, ALL types. The old code
+        // only saved `.string`, so any image / RTF / file URL on the clipboard
+        // was destroyed by the restore. We deep-copy each item's data per type
+        // so the snapshot survives our clearContents().
+        let snapshot = snapshotPasteboard(pasteboard)
 
         // Set our text (trailing space so next dictation/typing continues naturally).
         // The transient marker tells clipboard managers to ignore this write —
         // dictated text shouldn't end up in their history (privacy).
         pasteboard.clearContents()
-        pasteboard.setString(text + " ", forType: .string)
+        pasteboard.setString(insertedText, forType: .string)
         pasteboard.setString("", forType: TextInserter.transientType)
+
+        // Capture the changeCount AFTER our write. If anyone (including the
+        // user pressing Cmd+C in the target app, a clipboard manager, etc.)
+        // mutates the pasteboard before the restore fires, the count rises
+        // above this value and we abort the restore — overwriting the user's
+        // post-dictation copy would be worse than leaving our dictated text
+        // on the clipboard.
+        let changeCountAtOurWrite = pasteboard.changeCount
 
         // Simulate Cmd+V
         simulatePaste()
 
-        // Restore clipboard after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            pasteboard.clearContents()
-            if let previous = previousContents {
-                pasteboard.setString(previous, forType: .string)
+        // Restore the user's clipboard after the paste has had time to land.
+        DispatchQueue.main.asyncAfter(deadline: .now() + TextInserter.clipboardRestoreDelay) {
+            guard TextInserter.shouldRestoreClipboard(
+                changeCountAtOurWrite: changeCountAtOurWrite,
+                changeCountNow: pasteboard.changeCount
+            ) else {
+                log("Clipboard restore skipped — user copied something after dictation", tag: "TextInserter")
+                return
             }
+            TextInserter.restorePasteboard(pasteboard, from: snapshot)
         }
+    }
+
+    // MARK: - Clipboard snapshot / restore
+
+    /// Per-type bytes for one NSPasteboardItem. We can't keep a strong reference
+    /// to the original NSPasteboardItem and write it back later — once the
+    /// pasteboard is cleared, the item's backing data is gone. So we copy out.
+    fileprivate struct ItemSnapshot {
+        let dataByType: [NSPasteboard.PasteboardType: Data]
+    }
+
+    fileprivate func snapshotPasteboard(_ pasteboard: NSPasteboard) -> [ItemSnapshot] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+        return items.map { item in
+            var dataByType: [NSPasteboard.PasteboardType: Data] = [:]
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    dataByType[type] = data
+                }
+            }
+            return ItemSnapshot(dataByType: dataByType)
+        }
+    }
+
+    fileprivate static func restorePasteboard(_ pasteboard: NSPasteboard, from snapshot: [ItemSnapshot]) {
+        pasteboard.clearContents()
+        guard !snapshot.isEmpty else { return }
+        let restored: [NSPasteboardItem] = snapshot.map { snap in
+            let item = NSPasteboardItem()
+            for (type, data) in snap.dataByType {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        pasteboard.writeObjects(restored)
+    }
+
+    /// Pure decision: was the clipboard untouched since our write?
+    /// `pasteboard.changeCount` increments on every write (clearContents +
+    /// setData both bump it). Reads — including Cmd+V — do NOT bump it. So if
+    /// the count is exactly what we left it at, no one else wrote and our
+    /// restore is safe.
+    public static func shouldRestoreClipboard(changeCountAtOurWrite: Int, changeCountNow: Int) -> Bool {
+        return changeCountAtOurWrite == changeCountNow
     }
 
     private func simulatePaste() {
