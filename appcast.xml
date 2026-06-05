@@ -1,0 +1,36 @@
+<?xml version="1.0" standalone="yes"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>VoiceInk</title>
+        <link>https://gendalf-warden.github.io/voiceink/</link>
+        <description>VoiceInk macOS dictation app — release feed</description>
+        <language>en</language>
+        <item>
+            <title>Version 0.5.010</title>
+            <pubDate>Tue, 02 Jun 2026 11:25:21 +0000</pubDate>
+            <sparkle:version>0.5.010</sparkle:version>
+            <sparkle:shortVersionString>0.5.010</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+<h3>Fixed</h3>
+<ul>
+  <li><strong>Unfriendly Gatekeeper first-launch dialog (continued from 0.5.009)</strong>: despite</li>
+</ul>
+<p>  passing <code>codesign --verify --deep --strict</code> cleanly and being fully notarized</p>
+<p>  + stapled, the app still showed &quot;Apple could not verify VoiceInk is free of</p>
+<p>  malware. Done / Move to Trash&quot; on macOS 15 instead of the friendly &quot;App</p>
+<p>  downloaded from Internet — Open?&quot;. Hypothesis: macOS 15&#x27;s Gatekeeper folds</p>
+<p>  the <code>com.apple.security.cs.disable-library-validation</code> entitlement into its</p>
+<p>  first-launch risk assessment. We removed that entitlement — all bundled</p>
+<p>  dylibs / .so / Sparkle.framework internals are re-signed by <code>build-app.sh</code></p>
+<p>  with our Developer ID (Team 94QK2GK5GT), so library validation succeeds</p>
+<p>  natively without the disable flag. The entitlement was a relic from when we</p>
+<p>  shipped homebrew-signed libs without re-signing them.</p>]]></description>
+            <enclosure
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.010.dmg"
+                length="12979910"
+                type="application/octet-stream"
+                sparkle:edSignature="nKo5rbau/v9eiFoRneBGpuef+1f3H4Gj5WXqdpLW6OPBXcJF2gDwr7pBmP4Zz97bGV2xtN0KNmJrSxZ/9pEeCg==" />
+        </item>
+    </channel>
+</rss>
