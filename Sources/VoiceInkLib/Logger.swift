@@ -20,9 +20,16 @@ public final class Logger {
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
         logFile = logDir.appendingPathComponent("voiceink.log")
 
+        // Owner-only perms (SECURITY.md L3): the log may contain dictation text
+        // when the `logTranscriptions` opt-in is on, plus usage metadata otherwise.
+        let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+
         // Create file if it doesn't exist
         if !FileManager.default.fileExists(atPath: logFile.path) {
-            FileManager.default.createFile(atPath: logFile.path, contents: nil)
+            FileManager.default.createFile(atPath: logFile.path, contents: nil, attributes: ownerOnly)
+        } else {
+            // Tighten perms on a log written by an older (0644) build.
+            try? FileManager.default.setAttributes(ownerOnly, ofItemAtPath: logFile.path)
         }
 
         // Rotate if > 1MB
@@ -31,7 +38,7 @@ public final class Logger {
             let backup = logDir.appendingPathComponent("voiceink.log.old")
             try? FileManager.default.removeItem(at: backup)
             try? FileManager.default.moveItem(at: logFile, to: backup)
-            FileManager.default.createFile(atPath: logFile.path, contents: nil)
+            FileManager.default.createFile(atPath: logFile.path, contents: nil, attributes: ownerOnly)
         }
 
         fileHandle = FileHandle(forWritingAtPath: logFile.path)

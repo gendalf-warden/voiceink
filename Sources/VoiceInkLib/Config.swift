@@ -82,7 +82,7 @@ public struct Config: Codable {
         llamaModelPath = try container.decodeIfPresent(String.self, forKey: .llamaModelPath) ?? ""
         ollamaEnabled = try container.decode(Bool.self, forKey: .ollamaEnabled)
         ollamaModel = try container.decode(String.self, forKey: .ollamaModel)
-        ollamaEndpoint = try container.decode(String.self, forKey: .ollamaEndpoint)
+        ollamaEndpoint = Config.sanitizedOllamaEndpoint(try container.decode(String.self, forKey: .ollamaEndpoint))
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         logTranscriptions = try container.decodeIfPresent(Bool.self, forKey: .logTranscriptions) ?? false
 
@@ -161,6 +161,24 @@ public struct Config: Codable {
         translateTarget: "en",
         replacements: [:]
     )
+
+    /// Default (safe) Ollama endpoint — loopback only.
+    public static let defaultOllamaEndpoint = "http://localhost:11434"
+
+    /// Security (SECURITY.md M1): VoiceInk is local-only. A non-loopback Ollama
+    /// endpoint loaded from a tampered/synced `config.json` would silently send the
+    /// user's dictated text off-machine (SSRF / "no-cloud" bypass). Accept only
+    /// loopback http(s); anything else falls back to the safe default with a warning.
+    public static func sanitizedOllamaEndpoint(_ raw: String, fallback: String = defaultOllamaEndpoint) -> String {
+        let loopbackHosts: Set<String> = ["localhost", "127.0.0.1", "::1"]
+        guard let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host?.lowercased(), loopbackHosts.contains(host) else {
+            log("Ollama endpoint '\(raw)' is not loopback — ignoring, using \(fallback) (see SECURITY.md)", tag: "Config")
+            return fallback
+        }
+        return raw
+    }
 
     /// System RAM in GB
     public static let systemRAMGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
@@ -261,6 +279,9 @@ public struct Config: Codable {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(self)
             try data.write(to: Config.configFile)
+            // Owner-only — config can hold user-tuned settings; keep it off other
+            // local users (SECURITY.md L3).
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Config.configFile.path)
         } catch {
             log("Failed to save: \(error)", tag: "Config")
         }

@@ -30,7 +30,7 @@ public enum ProcessHygiene {
     /// SIGKILL — these processes are already orphans, no graceful shutdown to wait for.
     public static func killOrphans(executablePath: String, port: Int, label: String) {
         let killedByName = killByExecutablePath(executablePath, label: label)
-        let killedByPort = killByPort(port, label: label, alreadyKilled: killedByName)
+        let killedByPort = killByPort(port, executablePath: executablePath, label: label, alreadyKilled: killedByName)
         let total = killedByName.count + killedByPort.count
         if total == 0 {
             log("No orphan \(label) processes found", tag: "Hygiene")
@@ -103,18 +103,42 @@ public enum ProcessHygiene {
 
     // MARK: - Killing by port
 
-    private static func killByPort(_ port: Int, label: String, alreadyKilled: [pid_t]) -> [pid_t] {
+    private static func killByPort(_ port: Int, executablePath: String, label: String, alreadyKilled: [pid_t]) -> [pid_t] {
         guard let output = runLsof(port: port) else { return [] }
         let ownPID = ProcessInfo.processInfo.processIdentifier
         var pids: [pid_t] = []
         for rawLine in output.split(separator: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard let pid = pid_t(line), pid != ownPID, !alreadyKilled.contains(pid) else { continue }
-            log("Killing process pid=\(pid) holding port \(port) (\(label))", tag: "Hygiene")
+            // Security (SECURITY.md L1): only SIGKILL if this PID's executable is
+            // actually our bundled server. Never kill an unrelated process that
+            // merely happens to hold the port (port collision / dev server).
+            guard let path = resolvedExecutablePath(forPID: pid), pathsMatch(path, executablePath) else {
+                log("Port \(port) held by pid=\(pid) but its executable doesn't match \(label) — skipping", tag: "Hygiene")
+                continue
+            }
+            log("Killing process pid=\(pid) holding port \(port) (\(label), path-verified)", tag: "Hygiene")
             kill(pid, SIGKILL)
             pids.append(pid)
         }
         return pids
+    }
+
+    /// Resolve a PID's on-disk executable path via libproc. Returns nil if the
+    /// process is gone or the path can't be read.
+    private static func resolvedExecutablePath(forPID pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096) // PROC_PIDPATHINFO_MAXSIZE
+        let len = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard len > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    /// Symlink-resolved equality of two executable paths. Empty paths never match
+    /// (so an undetected/blank bundled path can't accidentally authorize a kill).
+    private static func pathsMatch(_ a: String, _ b: String) -> Bool {
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        return URL(fileURLWithPath: a).resolvingSymlinksInPath().path
+            == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
     }
 
     private static func runLsof(port: Int) -> String? {

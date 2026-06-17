@@ -260,14 +260,12 @@ public class SettingsWindowController: NSObject, NSWindowDelegate {
         log("Uninstall: starting cleanup", tag: "Uninstall")
         let fm = FileManager.default
 
-        // Kill whisper-server and llama-server
-        for name in ["whisper-server", "llama-server"] {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-            task.arguments = ["-f", name]
-            try? task.run()
-            task.waitUntilExit()
-        }
+        // Kill our bundled servers by EXACT executable path (+ path-verified port
+        // cross-check), not a broad `pkill -f <name>` substring match which would
+        // also terminate unrelated user processes whose command line contains the
+        // string (see SECURITY.md M2).
+        ProcessHygiene.killOrphans(executablePath: config.whisperServerPath, port: 8178, label: "whisper-server")
+        ProcessHygiene.killOrphans(executablePath: config.llamaServerPath, port: 8179, label: "llama-server")
 
         // Delete models (~3.5 GB)
         let modelsDir = ModelManager.modelsDir.deletingLastPathComponent()

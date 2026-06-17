@@ -239,18 +239,23 @@ public final class ModelManager: NSObject, URLSessionDownloadDelegate {
         let asset = models[currentIndex]
 
         do {
-            // Verify SHA256 if we have a hash
-            if !asset.sha256.isEmpty {
-                let fileData = try Data(contentsOf: location)
-                let digest = SHA256.hash(data: fileData)
-                let hex = digest.map { String(format: "%02x", $0) }.joined()
-                guard hex == asset.sha256 else {
-                    throw ModelDownloadError.hashMismatch(
-                        expected: asset.sha256, got: hex, file: asset.downloadFilename
-                    )
-                }
-                log("SHA256 verified for \(asset.downloadFilename)", tag: "ModelManager")
+            // Verify SHA256 — fail closed (SECURITY.md L2): a model with no pinned
+            // hash must never be installed/used, or a tampered download could ship
+            // a malicious GGUF/binary. Every asset in `assets` carries a hash.
+            guard !asset.sha256.isEmpty else {
+                throw ModelDownloadError.hashMismatch(
+                    expected: "<pinned SHA256 required>", got: "(none configured)", file: asset.downloadFilename
+                )
             }
+            let fileData = try Data(contentsOf: location)
+            let digest = SHA256.hash(data: fileData)
+            let hex = digest.map { String(format: "%02x", $0) }.joined()
+            guard hex == asset.sha256 else {
+                throw ModelDownloadError.hashMismatch(
+                    expected: asset.sha256, got: hex, file: asset.downloadFilename
+                )
+            }
+            log("SHA256 verified for \(asset.downloadFilename)", tag: "ModelManager")
 
             let destDir = ModelManager.modelsDir
 

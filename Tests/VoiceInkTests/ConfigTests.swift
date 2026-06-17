@@ -203,4 +203,24 @@ final class ConfigTests: XCTestCase {
         let config = makeBasicConfig(llamaServerPath: "", llamaModelPath: "")
         XCTAssertEqual(config.hotkeyDescription, "Fn")
     }
+
+    // MARK: - sanitizedOllamaEndpoint (SECURITY.md M1 — loopback-only)
+
+    func testSanitizedOllamaEndpointAllowsLoopback() {
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("http://localhost:11434"), "http://localhost:11434")
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("http://127.0.0.1:11434"), "http://127.0.0.1:11434")
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("https://localhost:443"), "https://localhost:443")
+    }
+
+    func testSanitizedOllamaEndpointRejectsRemote() {
+        let def = Config.defaultOllamaEndpoint
+        // Remote host → would exfiltrate dictation off-machine → reject
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("https://attacker.example.com:11434"), def)
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("http://192.168.1.50:11434"), def)
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("http://10.0.0.1:11434"), def)
+        // Malformed / non-http scheme → reject
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("file:///etc/passwd"), def)
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint("not a url"), def)
+        XCTAssertEqual(Config.sanitizedOllamaEndpoint(""), def)
+    }
 }

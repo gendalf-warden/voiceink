@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.014] - 2026-06-17
+
+### Security
+OWASP-mapped source audit (see new [`SECURITY.md`](SECURITY.md)) — no Critical/High;
+five hardening fixes applied:
+- **M1 (SSRF):** `ollamaEndpoint` is now validated as loopback-only
+  (`Config.sanitizedOllamaEndpoint`) — a tampered config can no longer point the
+  Ollama fallback at a remote host and exfiltrate dictated text. +2 regression tests.
+- **M2:** uninstall kills the bundled servers by exact executable path via
+  `ProcessHygiene.killOrphans` instead of a broad `pkill -f <name>` substring match.
+- **L1:** `ProcessHygiene` port-based kill now verifies the PID's executable
+  (`proc_pidpath`) matches the bundled server before SIGKILL — no more killing an
+  unrelated process that merely holds the port.
+- **L2:** model SHA-256 verification fails closed when no pinned hash is configured.
+- **L3:** `voiceink.log` and `config.json` are created `0600` (were `0644`); a
+  pre-existing log is tightened on launch.
+
+Added `README.md` (was missing) with a Security section linking `SECURITY.md`.
+
 ## [0.5.013] - 2026-06-06
 
 ### Added — field diagnostics
