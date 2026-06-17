@@ -6,62 +6,41 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.013</title>
-            <pubDate>Fri, 05 Jun 2026 22:38:51 +0000</pubDate>
-            <sparkle:version>0.5.013</sparkle:version>
-            <sparkle:shortVersionString>0.5.013</sparkle:shortVersionString>
+            <title>Version 0.5.014</title>
+            <pubDate>Wed, 17 Jun 2026 09:00:28 +0000</pubDate>
+            <sparkle:version>0.5.014</sparkle:version>
+            <sparkle:shortVersionString>0.5.014</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
-<h3>Added — field diagnostics</h3>
-<p>Triaging Anna&#x27;s report meant *inferring* almost everything (version from bundle</p>
-<p>paths, &quot;Thank you.&quot; from a <code>[10 chars]</code> count, silence from a duration/length</p>
-<p>ratio). These logs make the next report readable instead of guessable. Privacy</p>
-<p>principle: dropped/filtered text is rejected junk (never inserted), so it&#x27;s</p>
-<p>logged verbatim; real dictated text stays behind the <code>logTranscriptions</code> opt-in.</p>
+<h3>Security</h3>
+<p>OWASP-mapped source audit (see new [<code>SECURITY.md</code>](SECURITY.md)) — no Critical/High;</p>
+<p>five hardening fixes applied:</p>
 <ul>
-  <li><strong>Startup diagnostic banner</strong>: one block per launch with app version+build,</li>
+  <li><strong>M1 (SSRF):</strong> <code>ollamaEndpoint</code> is now validated as loopback-only</li>
 </ul>
-<p>  chip model (→ which ggml CPU backend applies), macOS version, RAM, microphone</p>
-<p>  &amp; accessibility permission states, hotkey, modes, and — crucially for the</p>
-<p>  &quot;no backends&quot; class — the list of ggml backend <code>.so</code> bundled next to</p>
-<p>  llama-server (<code>NONE ⚠️</code> if missing).</p>
+<p>  (<code>Config.sanitizedOllamaEndpoint</code>) — a tampered config can no longer point the</p>
+<p>  Ollama fallback at a remote host and exfiltrate dictated text. +2 regression tests.</p>
 <ul>
-  <li><strong>Recording stats</strong>: every stop logs duration + peak amplitude, so a</li>
+  <li><strong>M2:</strong> uninstall kills the bundled servers by exact executable path via</li>
 </ul>
-<p>  silence-driven hallucination is obvious (<code>4.8s, peak 0.004</code>). Skip reasons</p>
-<p>  (too-short / silent) now include the numbers.</p>
+<p>  <code>ProcessHygiene.killOrphans</code> instead of a broad <code>pkill -f &lt;name&gt;</code> substring match.</p>
 <ul>
-  <li><strong>Filter/drop visibility</strong>: <code>Transcriber</code> logs what the hallucination filter</li>
+  <li><strong>L1:</strong> <code>ProcessHygiene</code> port-based kill now verifies the PID&#x27;s executable</li>
 </ul>
-<p>  removed (<code>dropped entire output: &quot;Thank you.&quot;</code>); the pipeline logs when a</p>
-<p>  transcription is empty after filtering (the phantom-text path) — confirms the</p>
-<p>  0.5.011 fixes are firing in the field.</p>
+<p>  (<code>proc_pidpath</code>) matches the bundled server before SIGKILL — no more killing an</p>
+<p>  unrelated process that merely holds the port.</p>
 <ul>
-  <li><strong>Hotkey trigger classification</strong>: logs <code>Fn held ≥300ms → push-to-talk</code> vs</li>
+  <li><strong>L2:</strong> model SHA-256 verification fails closed when no pinned hash is configured.</li>
+  <li><strong>L3:</strong> <code>voiceink.log</code> and <code>config.json</code> are created <code>0600</code> (were <code>0644</code>); a</li>
 </ul>
-<p>  <code>Fn+key combo — push-to-talk cancelled</code>, so accidental triggers are visible.</p>
-<ul>
-  <li><strong>Redacted transcription signature</strong>: <code>[N chars, M words]</code> instead of bare</li>
-</ul>
-<p>  <code>[N chars]</code> when full-text logging is off.</p>
+<p>  pre-existing log is tightened on launch.</p>
 
-<h3>Fixed — build warnings (0-warnings gate)</h3>
-<ul>
-  <li>Cleared all 6 pre-existing <code>#SendableClosureCaptures</code> warnings so <code>develop</code></li>
-</ul>
-<p>  passes CLAUDE.md&#x27;s &quot;swift build — 0 warnings&quot; gate on a *clean* build</p>
-<p>  (<code>rm -rf .build &amp;&amp; swift build</code>). <code>AppDelegate</code> error-tail now uses</p>
-<p>  <code>Task.sleep</code> + <code>MainActor.run</code> instead of a <code>@Sendable</code></p>
-<p>  <code>DispatchQueue.asyncAfter</code> closure; <code>AudioConverter</code>&#x27;s <code>requestMediaDataWhenReady</code></p>
-<p>  callback (which runs serially on a dedicated queue) rebinds its AVFoundation</p>
-<p>  objects <code>nonisolated(unsafe)</code>. No behavior change. (Note: only 2 showed in</p>
-<p>  incremental builds — the other 4 in <code>AudioConverter</code> only surface on a clean</p>
-<p>  build because that file isn&#x27;t otherwise recompiled.)</p>]]></description>
+<p>Added <code>README.md</code> (was missing) with a Security section linking <code>SECURITY.md</code>.</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.013.dmg"
-                length="12989278"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.014.dmg"
+                length="12991267"
                 type="application/octet-stream"
-                sparkle:edSignature="rqCsRiND8gvNfPNLLmjAgEK7yEzQ2x/4UO80Z8X6bjikBLyzPbkHskYmjX2yMbmqdhiWFCouL2LCT9PJ1UmOBg==" />
+                sparkle:edSignature="a73zWhyzxnZtdIgxsFGqZFDCDgySy6oYSYSdmB77L/sFacTqgMjD4AaFnefJ2ChCCvgA9fFEk2nXnKm03R8cBQ==" />
         </item>
     </channel>
 </rss>
