@@ -135,8 +135,14 @@ public class FileTranscriptionManager {
 
             // Step 3.5: Lazy-load LLM if needed (when dictation toggle is off but file mode != .off,
             // LLM is not warm at startup — load it now, release after pipeline finishes).
+            //
+            // Low-RAM exception: defer the LLM load until AFTER the ASR phase (see the
+            // lowMemoryMode branch below). Loading it here keeps the llama-server working set
+            // (~2.5 GB for qwen2.5-3b) resident in RAM throughout the whisper ASR pass, which
+            // defeats the sequential-phase mitigation and causes swap thrash → whisper/llama
+            // timeouts on ≤8 GB machines.
             let needsLLM = mode != .off
-            if needsLLM, let onNeeded = onLLMNeeded {
+            if needsLLM, !lowMemoryMode, let onNeeded = onLLMNeeded {
                 window.setStatus("Loading post-processing model...")
                 let ready = await onNeeded()
                 if !ready {
@@ -166,16 +172,18 @@ public class FileTranscriptionManager {
             }
 
             // Step 4b: Pipeline (parallel or sequential per `lowMemoryMode`).
-            let llamaReady = llamaClient?.isServerRunning == true
             let ollamaReady = ollamaClient != nil
             let activeMode = mode
             let systemPrompt = activeMode.systemPrompt(translateTarget: translateTarget)
-            let useLLM = activeMode != .off && systemPrompt != nil && (llamaReady || ollamaReady)
+            // Whether post-processing is requested. Actual server availability is checked at
+            // call time in runLLM (the llama-server may be loaded lazily mid-pipeline in
+            // low-RAM mode, so a captured ready-flag would be stale).
+            let wantsLLM = activeMode != .off && systemPrompt != nil
             let filterLanguage = expectedLanguage
             // Script-mismatch guards only apply when LLM should preserve the source language.
             // For .translate the output language is intentionally different — disable the guard.
             let targetLang = activeMode == .translate ? nil : expectedLanguage
-            log("Pipeline: concurrency=\(concurrency), lowMem=\(lowMemoryMode), mode=\(activeMode.rawValue), useLLM=\(useLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
+            log("Pipeline: concurrency=\(concurrency), lowMem=\(lowMemoryMode), mode=\(activeMode.rawValue), useLLM=\(wantsLLM), expected=\(expectedLanguage ?? "auto")", tag: "FileTranscription")
 
             // Per-chunk ASR step. Returns raw text (after replacements) or empty on failure.
             // Timeout: 2× realtime on healthy systems, 4× on low-RAM (slower without
@@ -222,11 +230,13 @@ public class FileTranscriptionManager {
             }
 
             // Per-chunk LLM step. Returns processed text, or raw on any failure / hallucination guard hit.
+            // Server availability is checked live (not captured) so this works whether the LLM
+            // was loaded eagerly up front or lazily after the ASR phase in low-RAM mode.
             @Sendable func runLLM(raw: String, chunkIndex: Int) async -> String {
-                guard useLLM, !raw.isEmpty, let prompt = systemPrompt else { return raw }
+                guard wantsLLM, !raw.isEmpty, let prompt = systemPrompt else { return raw }
                 do {
                     let processed: String
-                    if llamaReady, let llamaClient = self.llamaClient {
+                    if self.llamaClient?.isServerRunning == true, let llamaClient = self.llamaClient {
                         processed = try await llamaClient.process(text: raw, systemPrompt: prompt)
                     } else if let ollamaClient = self.ollamaClient {
                         processed = try await ollamaClient.process(text: raw, systemPrompt: prompt)
@@ -252,15 +262,19 @@ public class FileTranscriptionManager {
             }
 
             if lowMemoryMode {
-                // Sequential 2-phase: all ASR first, then all LLM. Never both at once.
-                // On ≤8 GB machines this prevents whisper + llama working sets coexisting,
-                // which otherwise causes swap thrash and whisper-server timeouts/crashes.
+                // Sequential 2-phase, with the LLM loaded ONLY between the phases:
+                //   Phase 1: all ASR  (whisper-server is the only model resident in RAM)
+                //   → load llama-server →
+                //   Phase 2: all post-processing
+                // The llama working set (~2.5 GB) is never resident during the whisper ASR
+                // pass. Loading it up front (as the non-low-RAM path does) overlaps the two
+                // working sets on ≤8 GB machines → swap thrash → whisper/llama timeouts.
                 //
                 // Phase 1 streams raw ASR text into the window (so the user sees content
                 // immediately, not an empty box for an hour). Phase 2 updates each chunk
                 // in place with the LLM-processed text.
                 var rawByIndex: [Int: String] = [:]
-                let phaseLabel = useLLM ? "1/2" : "1/1"
+                let phaseLabel = wantsLLM ? "1/2" : "1/1"
                 window.setStatus("Phase \(phaseLabel): transcribing...")
                 for (i, chunk) in chunks.enumerated() {
                     let raw = await runASR(chunk: chunk)
@@ -273,7 +287,20 @@ public class FileTranscriptionManager {
                     window.appendChunk(result)
                     window.setStatus("Phase \(phaseLabel): transcribing \(i + 1)/\(totalChunks)...")
                 }
-                if useLLM {
+
+                // Phase 1 done — now (and only now) bring up the LLM, so its working set
+                // never coexisted with the whisper ASR pass.
+                if wantsLLM, let onNeeded = onLLMNeeded {
+                    window.setStatus("Loading post-processing model...")
+                    let ready = await onNeeded()
+                    if !ready {
+                        log("LLM unavailable — files will use raw Whisper output", tag: "FileTranscription")
+                    }
+                }
+
+                let llmAvailable = wantsLLM
+                    && (self.llamaClient?.isServerRunning == true || ollamaReady)
+                if llmAvailable {
                     // Reset progress bar for phase 2; chunks stay populated with raw text
                     // until each one is replaced by the LLM-processed version below.
                     window.beginPhase(label: "Phase 2/2: post-processing 0/\(totalChunks)...", totalChunks: totalChunks)

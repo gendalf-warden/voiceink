@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed — low-RAM file transcription hang (Katya's M2 8 GB)
+On ≤8 GB machines, a long file transcription (Katya: 92-min / 184-chunk meeting)
+could hang both servers on the first attempt: the LLM `warmup` timed out, then the
+whisper-server watchdog fired (`SIGTERM ignored → SIGKILL`), and the app had to be
+force-relaunched before a retry succeeded.
+
+**Cause:** the low-RAM "sequential ASR→LLM phases" mitigation was only sequential at
+the *request* level. `runPipeline` eager-loaded the llama-server at the *start* of the
+file transcription, so its ~2.5 GB working set sat resident in RAM throughout the
+entire whisper ASR pass — exactly the working-set overlap the mitigation was meant to
+prevent → swap thrash → timeouts.
+
+**Fix:** in low-RAM mode the LLM is now loaded *between* phases — Phase 1 runs all ASR
+with whisper as the only resident model, then the llama-server is brought up only for
+Phase 2 post-processing. `runLLM` checks server liveness live (instead of a captured
+ready-flag) so it works whether the LLM was loaded eagerly (normal path) or lazily
+mid-pipeline (low-RAM path). Non-low-RAM behaviour is unchanged. `FileTranscriptionManager.swift` only.
+
 ## [0.5.014] - 2026-06-17
 
 ### Security
