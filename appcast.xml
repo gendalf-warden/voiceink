@@ -7,11 +7,28 @@
         <language>en</language>
         <item>
             <title>Version 0.5.015</title>
-            <pubDate>Mon, 29 Jun 2026 06:19:08 +0000</pubDate>
+            <pubDate>Mon, 29 Jun 2026 06:21:04 +0000</pubDate>
             <sparkle:version>0.5.015</sparkle:version>
             <sparkle:shortVersionString>0.5.015</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<p>Release v0.5.015</p>]]></description>
+            <description><![CDATA[
+<h3>Fixed — low-RAM file transcription hang (Katya&#x27;s M2 8 GB)</h3>
+<p>On ≤8 GB machines, a long file transcription (Katya: 92-min / 184-chunk meeting)</p>
+<p>could hang both servers on the first attempt: the LLM <code>warmup</code> timed out, then the</p>
+<p>whisper-server watchdog fired (<code>SIGTERM ignored → SIGKILL</code>), and the app had to be</p>
+<p>force-relaunched before a retry succeeded.</p>
+
+<p><strong>Cause:</strong> the low-RAM &quot;sequential ASR→LLM phases&quot; mitigation was only sequential at</p>
+<p>the *request* level. <code>runPipeline</code> eager-loaded the llama-server at the *start* of the</p>
+<p>file transcription, so its ~2.5 GB working set sat resident in RAM throughout the</p>
+<p>entire whisper ASR pass — exactly the working-set overlap the mitigation was meant to</p>
+<p>prevent → swap thrash → timeouts.</p>
+
+<p><strong>Fix:</strong> in low-RAM mode the LLM is now loaded *between* phases — Phase 1 runs all ASR</p>
+<p>with whisper as the only resident model, then the llama-server is brought up only for</p>
+<p>Phase 2 post-processing. <code>runLLM</code> checks server liveness live (instead of a captured</p>
+<p>ready-flag) so it works whether the LLM was loaded eagerly (normal path) or lazily</p>
+<p>mid-pipeline (low-RAM path). Non-low-RAM behaviour is unchanged. <code>FileTranscriptionManager.swift</code> only.</p>]]></description>
             <enclosure
                 url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.015.dmg"
                 length="12989748"
