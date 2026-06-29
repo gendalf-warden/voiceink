@@ -6,41 +6,17 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.014</title>
-            <pubDate>Wed, 17 Jun 2026 09:00:28 +0000</pubDate>
-            <sparkle:version>0.5.014</sparkle:version>
-            <sparkle:shortVersionString>0.5.014</sparkle:shortVersionString>
+            <title>Version 0.5.015</title>
+            <pubDate>Mon, 29 Jun 2026 06:19:08 +0000</pubDate>
+            <sparkle:version>0.5.015</sparkle:version>
+            <sparkle:shortVersionString>0.5.015</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[
-<h3>Security</h3>
-<p>OWASP-mapped source audit (see new [<code>SECURITY.md</code>](SECURITY.md)) — no Critical/High;</p>
-<p>five hardening fixes applied:</p>
-<ul>
-  <li><strong>M1 (SSRF):</strong> <code>ollamaEndpoint</code> is now validated as loopback-only</li>
-</ul>
-<p>  (<code>Config.sanitizedOllamaEndpoint</code>) — a tampered config can no longer point the</p>
-<p>  Ollama fallback at a remote host and exfiltrate dictated text. +2 regression tests.</p>
-<ul>
-  <li><strong>M2:</strong> uninstall kills the bundled servers by exact executable path via</li>
-</ul>
-<p>  <code>ProcessHygiene.killOrphans</code> instead of a broad <code>pkill -f &lt;name&gt;</code> substring match.</p>
-<ul>
-  <li><strong>L1:</strong> <code>ProcessHygiene</code> port-based kill now verifies the PID&#x27;s executable</li>
-</ul>
-<p>  (<code>proc_pidpath</code>) matches the bundled server before SIGKILL — no more killing an</p>
-<p>  unrelated process that merely holds the port.</p>
-<ul>
-  <li><strong>L2:</strong> model SHA-256 verification fails closed when no pinned hash is configured.</li>
-  <li><strong>L3:</strong> <code>voiceink.log</code> and <code>config.json</code> are created <code>0600</code> (were <code>0644</code>); a</li>
-</ul>
-<p>  pre-existing log is tightened on launch.</p>
-
-<p>Added <code>README.md</code> (was missing) with a Security section linking <code>SECURITY.md</code>.</p>]]></description>
+            <description><![CDATA[<p>Release v0.5.015</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.014.dmg"
-                length="12991267"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.015.dmg"
+                length="12989748"
                 type="application/octet-stream"
-                sparkle:edSignature="a73zWhyzxnZtdIgxsFGqZFDCDgySy6oYSYSdmB77L/sFacTqgMjD4AaFnefJ2ChCCvgA9fFEk2nXnKm03R8cBQ==" />
+                sparkle:edSignature="PaQYs7GZUJ69r4Lfu+DktLm1Kfbqy++GbUJa1S+iD+/9w9snCLCr9KWMgZojCqj4U0q/lkfofhTTxt9JSPIzAw==" />
         </item>
     </channel>
 </rss>

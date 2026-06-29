@@ -1,12 +1,12 @@
 {
-    "version": "0.5.014",
-    "tag": "v0.5.014",
-    "released": "2026-06-17T09:00:07Z",
+    "version": "0.5.015",
+    "tag": "v0.5.015",
+    "released": "2026-06-29T06:18:59Z",
     "min_macos": "13.0",
     "dmg": {
-        "url": "https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.014.dmg",
-        "size": 12991267,
-        "sha256": "6ba5d9a3ea91e1c1e26a67c702e19138cfff180f9e2f13d2aea225f011370023"
+        "url": "https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.015.dmg",
+        "size": 12989748,
+        "sha256": "263f6af5a77dd8d5c200f49ba57a646bbc9ce06c505161a124cefdbe086d290c"
     },
     "release_notes_url": "https://gendalf-warden.github.io/voiceink/changelog.html"
 }
