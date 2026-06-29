@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.015] - 2026-06-29
+
 ### Fixed — low-RAM file transcription hang (Katya's M2 8 GB)
 On ≤8 GB machines, a long file transcription (Katya: 92-min / 184-chunk meeting)
 could hang both servers on the first attempt: the LLM `warmup` timed out, then the

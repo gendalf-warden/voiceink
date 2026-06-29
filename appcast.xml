@@ -6,41 +6,34 @@
         <description>VoiceInk macOS dictation app — release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.5.014</title>
-            <pubDate>Wed, 17 Jun 2026 09:00:28 +0000</pubDate>
-            <sparkle:version>0.5.014</sparkle:version>
-            <sparkle:shortVersionString>0.5.014</sparkle:shortVersionString>
+            <title>Version 0.5.015</title>
+            <pubDate>Mon, 29 Jun 2026 06:21:04 +0000</pubDate>
+            <sparkle:version>0.5.015</sparkle:version>
+            <sparkle:shortVersionString>0.5.015</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
-<h3>Security</h3>
-<p>OWASP-mapped source audit (see new [<code>SECURITY.md</code>](SECURITY.md)) — no Critical/High;</p>
-<p>five hardening fixes applied:</p>
-<ul>
-  <li><strong>M1 (SSRF):</strong> <code>ollamaEndpoint</code> is now validated as loopback-only</li>
-</ul>
-<p>  (<code>Config.sanitizedOllamaEndpoint</code>) — a tampered config can no longer point the</p>
-<p>  Ollama fallback at a remote host and exfiltrate dictated text. +2 regression tests.</p>
-<ul>
-  <li><strong>M2:</strong> uninstall kills the bundled servers by exact executable path via</li>
-</ul>
-<p>  <code>ProcessHygiene.killOrphans</code> instead of a broad <code>pkill -f &lt;name&gt;</code> substring match.</p>
-<ul>
-  <li><strong>L1:</strong> <code>ProcessHygiene</code> port-based kill now verifies the PID&#x27;s executable</li>
-</ul>
-<p>  (<code>proc_pidpath</code>) matches the bundled server before SIGKILL — no more killing an</p>
-<p>  unrelated process that merely holds the port.</p>
-<ul>
-  <li><strong>L2:</strong> model SHA-256 verification fails closed when no pinned hash is configured.</li>
-  <li><strong>L3:</strong> <code>voiceink.log</code> and <code>config.json</code> are created <code>0600</code> (were <code>0644</code>); a</li>
-</ul>
-<p>  pre-existing log is tightened on launch.</p>
+<h3>Fixed — low-RAM file transcription hang (Katya&#x27;s M2 8 GB)</h3>
+<p>On ≤8 GB machines, a long file transcription (Katya: 92-min / 184-chunk meeting)</p>
+<p>could hang both servers on the first attempt: the LLM <code>warmup</code> timed out, then the</p>
+<p>whisper-server watchdog fired (<code>SIGTERM ignored → SIGKILL</code>), and the app had to be</p>
+<p>force-relaunched before a retry succeeded.</p>
 
-<p>Added <code>README.md</code> (was missing) with a Security section linking <code>SECURITY.md</code>.</p>]]></description>
+<p><strong>Cause:</strong> the low-RAM &quot;sequential ASR→LLM phases&quot; mitigation was only sequential at</p>
+<p>the *request* level. <code>runPipeline</code> eager-loaded the llama-server at the *start* of the</p>
+<p>file transcription, so its ~2.5 GB working set sat resident in RAM throughout the</p>
+<p>entire whisper ASR pass — exactly the working-set overlap the mitigation was meant to</p>
+<p>prevent → swap thrash → timeouts.</p>
+
+<p><strong>Fix:</strong> in low-RAM mode the LLM is now loaded *between* phases — Phase 1 runs all ASR</p>
+<p>with whisper as the only resident model, then the llama-server is brought up only for</p>
+<p>Phase 2 post-processing. <code>runLLM</code> checks server liveness live (instead of a captured</p>
+<p>ready-flag) so it works whether the LLM was loaded eagerly (normal path) or lazily</p>
+<p>mid-pipeline (low-RAM path). Non-low-RAM behaviour is unchanged. <code>FileTranscriptionManager.swift</code> only.</p>]]></description>
             <enclosure
-                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.014.dmg"
-                length="12991267"
+                url="https://gendalf-warden.github.io/voiceink/VoiceInk-0.5.015.dmg"
+                length="12989748"
                 type="application/octet-stream"
-                sparkle:edSignature="a73zWhyzxnZtdIgxsFGqZFDCDgySy6oYSYSdmB77L/sFacTqgMjD4AaFnefJ2ChCCvgA9fFEk2nXnKm03R8cBQ==" />
+                sparkle:edSignature="PaQYs7GZUJ69r4Lfu+DktLm1Kfbqy++GbUJa1S+iD+/9w9snCLCr9KWMgZojCqj4U0q/lkfofhTTxt9JSPIzAw==" />
         </item>
     </channel>
 </rss>
